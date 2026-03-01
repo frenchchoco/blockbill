@@ -71,6 +71,8 @@ export function Dashboard(): React.JSX.Element {
                 if (!invResult?.properties) continue;
                 const p = invResult.properties;
 
+                console.log(`[BlockBill] Invoice #${i + 1} raw status:`, p.status, typeof p.status);
+
                 const inv: InvoiceData = {
                     id: BigInt(i + 1),
                     creator: (p.creator as Address | undefined)?.toHex() ?? '',

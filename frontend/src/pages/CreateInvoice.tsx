@@ -251,7 +251,16 @@ export function CreateInvoice(): React.JSX.Element {
 
     return (
         <>
-        {showSeal && <SealAnimation confirmed={sealConfirmed} onComplete={() => navigate('/dashboard')} />}
+        {showSeal && (
+            <SealAnimation
+                confirmed={sealConfirmed}
+                onComplete={() => navigate('/dashboard')}
+                stampLabel="CREATED"
+                stampColor="#B8860B"
+                confirmedTitle="Invoice Created"
+                confirmedSubtitle="Recorded on Bitcoin L1"
+            />
+        )}
         <div className="max-w-6xl mx-auto">
             <h1 className="text-3xl font-serif text-[var(--ink-dark)] mb-8 text-center">Create Invoice</h1>
 

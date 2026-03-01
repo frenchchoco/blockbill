@@ -1,14 +1,29 @@
 import { useEffect, useState, useRef } from 'react';
 
 interface SealAnimationProps {
-    /** When true, the PAID stamp slams down and the animation completes */
+    /** When true, the stamp slams down and the animation completes */
     readonly confirmed: boolean;
     readonly onComplete: () => void;
+    /** Stamp text — defaults to "PAID" */
+    readonly stampLabel?: string;
+    /** Stamp border/text color — defaults to red (#B71C1C) */
+    readonly stampColor?: string;
+    /** Title shown after confirmation — defaults to "Payment Confirmed" */
+    readonly confirmedTitle?: string;
+    /** Subtitle shown after confirmation */
+    readonly confirmedSubtitle?: string;
 }
 
 type Phase = 'enter' | 'waiting' | 'stamp' | 'settle' | 'done';
 
-export function SealAnimation({ confirmed, onComplete }: SealAnimationProps): React.JSX.Element {
+export function SealAnimation({
+    confirmed,
+    onComplete,
+    stampLabel = 'PAID',
+    stampColor = '#B71C1C',
+    confirmedTitle = 'Payment Confirmed',
+    confirmedSubtitle = 'Recorded on Bitcoin L1',
+}: SealAnimationProps): React.JSX.Element {
     const [phase, setPhase] = useState<Phase>('enter');
     const onCompleteRef = useRef(onComplete);
     onCompleteRef.current = onComplete;
@@ -19,7 +34,7 @@ export function SealAnimation({ confirmed, onComplete }: SealAnimationProps): Re
         return () => clearTimeout(t);
     }, []);
 
-    // Phase 2: when confirmed, stamp PAID
+    // Phase 2: when confirmed, stamp
     useEffect(() => {
         if (!confirmed || phase !== 'waiting') return;
 
@@ -79,7 +94,7 @@ export function SealAnimation({ confirmed, onComplete }: SealAnimationProps): Re
                                 <div className="h-3 w-20 bg-[#B8860B]/15 rounded-full" />
                             </div>
 
-                            {/* PAID stamp — only rendered after stamp phase */}
+                            {/* Stamp — only rendered after stamp phase */}
                             {past('stamp') && (
                                 <div
                                     className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-all ${
@@ -89,9 +104,10 @@ export function SealAnimation({ confirmed, onComplete }: SealAnimationProps): Re
                                     }`}
                                     style={{ transform: 'rotate(-12deg)' }}
                                 >
-                                    <div className="border-[4px] border-[#B71C1C] rounded-md px-8 py-3 select-none"
+                                    <div className="border-[4px] rounded-md px-8 py-3 select-none"
                                         style={{
-                                            color: '#B71C1C',
+                                            borderColor: stampColor,
+                                            color: stampColor,
                                             fontFamily: 'serif',
                                             fontWeight: 900,
                                             fontSize: '2.5rem',
@@ -99,10 +115,10 @@ export function SealAnimation({ confirmed, onComplete }: SealAnimationProps): Re
                                             textTransform: 'uppercase',
                                             lineHeight: 1,
                                             opacity: past('settle') ? 0.85 : 0.95,
-                                            textShadow: '0 0 1px rgba(183, 28, 28, 0.3)',
+                                            textShadow: `0 0 1px ${stampColor}40`,
                                         }}
                                     >
-                                        PAID
+                                        {stampLabel}
                                     </div>
                                 </div>
                             )}
@@ -117,10 +133,10 @@ export function SealAnimation({ confirmed, onComplete }: SealAnimationProps): Re
                     {past('settle') ? (
                         <>
                             <p className="text-[#FFFEF7] text-lg font-serif tracking-wide">
-                                Payment Confirmed
+                                {confirmedTitle}
                             </p>
                             <p className="text-[#FFFEF7]/40 text-xs mt-1.5 tracking-wider uppercase">
-                                Recorded on Bitcoin L1
+                                {confirmedSubtitle}
                             </p>
                         </>
                     ) : (

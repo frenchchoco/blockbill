@@ -11,7 +11,6 @@ import {
     SafeMath,
     StoredU256,
     TransferHelper,
-    u256To30Bytes,
 } from '@btc-vision/btc-runtime/runtime';
 
 const STATUS_PENDING: u8 = 0;
@@ -434,9 +433,19 @@ export class BlockBillContract extends OP_NET {
     /**
      * Builds a 32-byte storage key from a pointer (u16) and a u256 sub-key.
      * The pointer occupies the first 2 bytes, the sub-key occupies the remaining 30 bytes.
+     *
+     * NOTE: u256To30Bytes keeps the FIRST 30 bytes of the BE representation, truncating
+     * the last 2 bytes — which is where small values (like sequential invoice IDs) have
+     * their significant bits. This causes all small IDs to collide to the same key.
+     * Fix: take bytes 2..31 of the 32-byte BE representation (drop MSB, keep LSB).
      */
     protected buildKey(pointer: u16, key: u256): Uint8Array {
-        return encodePointer(pointer, u256To30Bytes(key));
+        const be: Uint8Array = key.toUint8Array(true); // 32 bytes, big-endian
+        const sub: Uint8Array = new Uint8Array(30);
+        for (let i: i32 = 0; i < 30; i++) {
+            sub[i] = be[i + 2];
+        }
+        return encodePointer(pointer, sub);
     }
 
     protected storeAddressAt(pointer: u16, key: u256, addr: Address): void {
