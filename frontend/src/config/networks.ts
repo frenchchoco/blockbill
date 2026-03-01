@@ -7,33 +7,37 @@ export interface NetworkConfig {
     readonly explorerUrl: string;
 }
 
-export const NETWORK_CONFIGS: Map<Network, NetworkConfig> = new Map([
-    [networks.bitcoin, {
+function networkKey(n: Network): string {
+    return n.bech32Opnet ?? n.bech32;
+}
+
+const NETWORK_CONFIGS: Record<string, NetworkConfig> = {
+    [networkKey(networks.bitcoin)]: {
         name: 'Mainnet',
         rpcUrl: 'https://mainnet.opnet.org',
         explorerUrl: 'https://explorer.opnet.org',
-    }],
-    [networks.opnetTestnet, {
+    },
+    [networkKey(networks.opnetTestnet)]: {
         name: 'OPNet Testnet',
         rpcUrl: 'https://testnet.opnet.org',
         explorerUrl: 'https://testnet-explorer.opnet.org',
-    }],
-    [networks.regtest, {
+    },
+    [networkKey(networks.regtest)]: {
         name: 'Regtest',
         rpcUrl: 'http://localhost:9001',
         explorerUrl: 'http://localhost:3000',
-    }],
-]);
+    },
+};
 
 export function getRpcUrl(network: Network): string {
-    const config = NETWORK_CONFIGS.get(network);
+    const config = NETWORK_CONFIGS[networkKey(network)];
     if (!config) {
-        throw new Error('Unsupported network');
+        throw new Error(`Unsupported network (key=${networkKey(network)})`);
     }
     return config.rpcUrl;
 }
 
 export function getNetworkName(network: Network): string {
-    const config = NETWORK_CONFIGS.get(network);
+    const config = NETWORK_CONFIGS[networkKey(network)];
     return config?.name ?? 'Unknown';
 }

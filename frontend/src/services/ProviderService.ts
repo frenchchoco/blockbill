@@ -1,5 +1,4 @@
 import { JSONRpcProvider } from 'opnet';
-import { networks } from '@btc-vision/bitcoin';
 import type { Network } from '@btc-vision/bitcoin';
 import { getRpcUrl } from '../config/networks';
 
@@ -17,22 +16,15 @@ class ProviderService {
     }
 
     public getProvider(network: Network): JSONRpcProvider {
-        const networkId = this.getNetworkId(network);
-        const existing = this.providers.get(networkId);
+        const key = network.bech32Opnet ?? network.bech32;
+        const existing = this.providers.get(key);
         if (existing) {
             return existing;
         }
         const rpcUrl = getRpcUrl(network);
         const provider = new JSONRpcProvider({ url: rpcUrl, network });
-        this.providers.set(networkId, provider);
+        this.providers.set(key, provider);
         return provider;
-    }
-
-    private getNetworkId(network: Network): string {
-        if (network === networks.bitcoin) return 'mainnet';
-        if (network === networks.opnetTestnet) return 'testnet';
-        if (network === networks.regtest) return 'regtest';
-        return 'unknown';
     }
 }
 
