@@ -9,14 +9,6 @@ export interface TokenInfo {
     readonly icon: string;
 }
 
-const BTC_TOKEN: TokenInfo = {
-    address: 'btc',
-    symbol: 'BTC',
-    name: 'Bitcoin (Native)',
-    decimals: 8,
-    icon: '\u20BF',
-};
-
 const MOTO_TOKEN_TESTNET: TokenInfo = {
     address: '0xfd4473840751d58d9f8b73bdd57d6c5260453d5518bd7cd02d0a4cf3df9bf4dd',
     symbol: 'MOTO',
@@ -34,13 +26,11 @@ const BLOCK_TOKEN_TESTNET: TokenInfo = {
 };
 
 const TESTNET_TOKENS: readonly TokenInfo[] = [
-    BTC_TOKEN,
     MOTO_TOKEN_TESTNET,
     BLOCK_TOKEN_TESTNET,
 ];
 
 const REGTEST_TOKENS: readonly TokenInfo[] = [
-    BTC_TOKEN,
     {
         address: '0xfb7df2f08d8042d4df0506c0d4cee3cfa5f2d7b02ef01ec76dd699551393a438',
         symbol: 'PILL',
@@ -60,11 +50,11 @@ const REGTEST_TOKENS: readonly TokenInfo[] = [
 const TOKEN_MAP: Map<Network, readonly TokenInfo[]> = new Map([
     [networks.opnetTestnet, TESTNET_TOKENS],
     [networks.regtest, REGTEST_TOKENS],
-    [networks.bitcoin, [BTC_TOKEN]],
+    [networks.bitcoin, []],
 ]);
 
 export function getKnownTokens(network: Network): readonly TokenInfo[] {
-    return TOKEN_MAP.get(network) ?? [BTC_TOKEN];
+    return TOKEN_MAP.get(network) ?? [];
 }
 
 export function findToken(address: string, network: Network): TokenInfo | undefined {
@@ -88,10 +78,6 @@ export function parseTokenAmount(value: string, decimals: number): bigint {
     const fracStr = (parts[1] || '').padEnd(decimals, '0').slice(0, decimals);
     const frac = BigInt(fracStr);
     return whole * (10n ** BigInt(decimals)) + frac;
-}
-
-export function isBtcToken(address: string): boolean {
-    return address === 'btc';
 }
 
 export function formatAddress(addr: string): string {

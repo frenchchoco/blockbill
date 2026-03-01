@@ -10,7 +10,7 @@ import { InvoiceStatus } from '../types/invoice';
 import { useNetwork } from '../hooks/useNetwork';
 import { useAddressValidation } from '../hooks/useAddressValidation';
 import { contractService } from '../services/ContractService';
-import { getKnownTokens, findToken, parseTokenAmount, formatTokenAmount, formatAddress, isBtcToken } from '../config/tokens';
+import { getKnownTokens, findToken, parseTokenAmount, formatTokenAmount, formatAddress } from '../config/tokens';
 import type { TokenInfo } from '../config/tokens';
 
 interface FormLineItem {
@@ -51,6 +51,8 @@ export function CreateInvoice(): React.JSX.Element {
     const [showSeal, setShowSeal] = useState(false);
     const [tokenBalance, setTokenBalance] = useState<bigint | null>(null);
     const [onChainDecimals, setOnChainDecimals] = useState<number | null>(null);
+    const [customTokenName, setCustomTokenName] = useState<string | null>(null);
+    const [customTokenSymbol, setCustomTokenSymbol] = useState<string | null>(null);
     const [balanceLoading, setBalanceLoading] = useState(false);
 
     const knownTokens = useMemo(() => getKnownTokens(network), [network]);
@@ -100,8 +102,6 @@ export function CreateInvoice(): React.JSX.Element {
         return form.lineItems.reduce((sum, item) => sum + parseTokenAmount(item.amount || '0', decimals), 0n);
     }, [form.lineItems, decimals]);
 
-    const isBtc = isBtcToken(form.tokenAddress);
-
     // Validate custom addresses with AddressVerificator
     const tokenValidation = useAddressValidation(
         customToken ? form.tokenAddress : '',
@@ -109,11 +109,13 @@ export function CreateInvoice(): React.JSX.Element {
     );
     const recipientValidation = useAddressValidation(form.recipient, network);
 
-    // Fetch token balance and on-chain decimals when token or wallet changes
+    // Fetch token balance, decimals, and name when token or wallet changes
     useEffect(() => {
         setTokenBalance(null);
         setOnChainDecimals(null);
-        if (!address || !form.tokenAddress || isBtcToken(form.tokenAddress)) return;
+        setCustomTokenName(null);
+        setCustomTokenSymbol(null);
+        if (!address || !form.tokenAddress) return;
 
         let cancelled = false;
         setBalanceLoading(true);
@@ -135,6 +137,8 @@ export function CreateInvoice(): React.JSX.Element {
 
                 if (!cancelled && metadataResult?.properties) {
                     setOnChainDecimals(metadataResult.properties.decimals);
+                    setCustomTokenName(metadataResult.properties.name || null);
+                    setCustomTokenSymbol(metadataResult.properties.symbol || null);
                 }
                 if (!cancelled && balanceResult?.properties) {
                     setTokenBalance(balanceResult.properties.balance ?? 0n);
@@ -247,31 +251,24 @@ export function CreateInvoice(): React.JSX.Element {
                                                 <span className="text-lg">{token.icon}</span>
                                                 <div>
                                                     <span className="block text-sm font-medium">{token.symbol}</span>
-                                                    <span className="block text-xs opacity-60">{isBtcToken(token.address) ? 'Manual settlement' : token.name}</span>
+                                                    <span className="block text-xs opacity-60">{token.name}</span>
                                                 </div>
                                             </button>
                                         ))}
                                     </div>
                                     {/* Token balance display */}
-                                    {walletAddress && form.tokenAddress && !isBtc && (
+                                    {walletAddress && form.tokenAddress && (
                                         <div className="flex items-center gap-2 px-3 py-2 bg-[var(--paper-bg)] rounded-lg border border-[var(--border-paper)]">
                                             <span className="text-xs text-[var(--ink-light)]">Wallet balance:</span>
                                             {balanceLoading ? (
                                                 <span className="text-xs text-[var(--ink-light)] animate-pulse">Loading...</span>
                                             ) : tokenBalance !== null ? (
                                                 <span className="text-sm font-mono font-medium text-[var(--ink-dark)]">
-                                                    {formatTokenAmount(tokenBalance, decimals)} {selectedToken?.symbol ?? ''}
+                                                    {formatTokenAmount(tokenBalance, decimals)} {selectedToken?.symbol ?? customTokenSymbol ?? ''}
                                                 </span>
                                             ) : (
                                                 <span className="text-xs text-[var(--ink-light)]">--</span>
                                             )}
-                                        </div>
-                                    )}
-                                    {isBtc && (
-                                        <div className="px-3 py-2 bg-[var(--stamp-orange)]/10 border border-[var(--stamp-orange)]/30 rounded-lg">
-                                            <p className="text-xs text-[var(--stamp-orange)]">
-                                                BTC invoices use manual settlement. The payer sends BTC off-chain, then you mark it as paid with the tx hash.
-                                            </p>
                                         </div>
                                     )}
                                     <button type="button" onClick={() => setCustomToken(true)}
@@ -287,6 +284,31 @@ export function CreateInvoice(): React.JSX.Element {
                                     {form.tokenAddress && !tokenValidation.isValid && tokenValidation.error && (
                                         <p className="text-xs text-[var(--stamp-red)]">{tokenValidation.error}</p>
                                     )}
+                                    {/* Custom token info: name + balance */}
+                                    {walletAddress && form.tokenAddress && tokenValidation.isValid && (
+                                        <div className="flex items-center justify-between px-3 py-2 bg-[var(--paper-bg)] rounded-lg border border-[var(--border-paper)]">
+                                            <div className="flex items-center gap-2">
+                                                {balanceLoading ? (
+                                                    <span className="text-xs text-[var(--ink-light)] animate-pulse">Loading token info...</span>
+                                                ) : customTokenName ? (
+                                                    <span className="text-sm font-medium text-[var(--ink-dark)]">
+                                                        {customTokenName}{customTokenSymbol ? ` (${customTokenSymbol})` : ''}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-xs text-[var(--ink-light)]">Unknown token</span>
+                                                )}
+                                            </div>
+                                            <div>
+                                                {balanceLoading ? null : tokenBalance !== null ? (
+                                                    <span className="text-sm font-mono font-medium text-[var(--ink-dark)]">
+                                                        {formatTokenAmount(tokenBalance, decimals)} {customTokenSymbol ?? ''}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-xs text-[var(--ink-light)]">--</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
                                     <button type="button" onClick={() => { setCustomToken(false); updateField('tokenAddress', ''); }}
                                         className="text-xs text-[var(--accent-gold)] hover:underline">
                                         Back to token list
@@ -298,7 +320,7 @@ export function CreateInvoice(): React.JSX.Element {
                         {/* Amount */}
                         <div>
                             <label htmlFor="totalAmount" className={labelCls}>
-                                Amount {selectedToken ? `(${selectedToken.symbol})` : ''}
+                                Amount {selectedToken ? `(${selectedToken.symbol})` : customTokenSymbol ? `(${customTokenSymbol})` : ''}
                             </label>
                             <input id="totalAmount" type="text" inputMode="decimal"
                                 value={form.totalAmount}
@@ -422,6 +444,7 @@ export function CreateInvoice(): React.JSX.Element {
                                     <span className="text-[var(--ink-light)]">Token</span>
                                     <span className="font-mono text-[var(--ink-dark)]">
                                         {selectedToken ? (<span className="flex items-center gap-1"><span>{selectedToken.icon}</span><span>{selectedToken.symbol}</span></span>)
+                                            : customTokenSymbol ? customTokenSymbol
                                             : form.tokenAddress ? formatAddress(form.tokenAddress)
                                             : (<span className="text-[var(--ink-light)] italic">Select token</span>)}
                                     </span>
