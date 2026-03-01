@@ -17,8 +17,17 @@ const BTC_TOKEN: TokenInfo = {
     icon: '\u20BF',
 };
 
+const MOTO_TOKEN_TESTNET: TokenInfo = {
+    address: 'opt1pl4z88pq8282cm8utww7a2ltv2fsy2024rz7he5pdpfx08hum7nwsfhyq0p',
+    symbol: 'MOTO',
+    name: 'MOTO Token',
+    decimals: 8,
+    icon: '\uD83C\uDFCD',
+};
+
 const TESTNET_TOKENS: readonly TokenInfo[] = [
     BTC_TOKEN,
+    MOTO_TOKEN_TESTNET,
 ];
 
 const REGTEST_TOKENS: readonly TokenInfo[] = [
@@ -74,6 +83,10 @@ export function parseTokenAmount(value: string, decimals: number): bigint {
     const fracStr = (parts[1] || '').padEnd(decimals, '0').slice(0, decimals);
     const frac = BigInt(fracStr);
     return whole * (10n ** BigInt(decimals)) + frac;
+}
+
+export function isBtcToken(address: string): boolean {
+    return address === 'btc';
 }
 
 export function formatAddress(addr: string): string {

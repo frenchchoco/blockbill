@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWalletConnect } from '@btc-vision/walletconnect';
 import toast from 'react-hot-toast';
@@ -8,7 +8,8 @@ import { SealAnimation } from '../components/common/SealAnimation';
 import { InvoiceStatus } from '../types/invoice';
 import { useNetwork } from '../hooks/useNetwork';
 import { contractService } from '../services/ContractService';
-import { getKnownTokens, findToken, parseTokenAmount, formatTokenAmount, formatAddress } from '../config/tokens';
+import { Address } from '@btc-vision/transaction';
+import { getKnownTokens, findToken, parseTokenAmount, formatTokenAmount, formatAddress, isBtcToken } from '../config/tokens';
 import type { TokenInfo } from '../config/tokens';
 
 interface FormLineItem {
@@ -47,6 +48,8 @@ export function CreateInvoice(): React.JSX.Element {
     const [submitting, setSubmitting] = useState(false);
     const [customToken, setCustomToken] = useState(false);
     const [showSeal, setShowSeal] = useState(false);
+    const [tokenBalance, setTokenBalance] = useState<bigint | null>(null);
+    const [balanceLoading, setBalanceLoading] = useState(false);
 
     const knownTokens = useMemo(() => getKnownTokens(network), [network]);
 
@@ -94,12 +97,40 @@ export function CreateInvoice(): React.JSX.Element {
         return form.lineItems.reduce((sum, item) => sum + parseTokenAmount(item.amount || '0', decimals), 0n);
     }, [form.lineItems, decimals]);
 
+    const isBtc = isBtcToken(form.tokenAddress);
+
+    // Fetch token balance when token or wallet changes
+    useEffect(() => {
+        setTokenBalance(null);
+        if (!walletAddress || !form.tokenAddress || isBtcToken(form.tokenAddress)) return;
+
+        let cancelled = false;
+        setBalanceLoading(true);
+
+        const fetchBalance = async (): Promise<void> => {
+            try {
+                const tokenContract = contractService.getTokenContract(form.tokenAddress, network, walletAddress);
+                const ownerAddr = Address.fromString(walletAddress);
+                const result = await tokenContract.balanceOf(ownerAddr);
+                if (!cancelled && result?.properties) {
+                    setTokenBalance(result.properties.balance ?? 0n);
+                }
+            } catch {
+                if (!cancelled) setTokenBalance(null);
+            } finally {
+                if (!cancelled) setBalanceLoading(false);
+            }
+        };
+        void fetchBalance();
+
+        return () => { cancelled = true; };
+    }, [form.tokenAddress, walletAddress, network]);
+
     const handleSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
         if (!walletAddress || submitting) return;
         if (parsedAmount === 0n) { toast.error('Amount must be greater than 0'); return; }
         if (!form.tokenAddress) { toast.error('Please select a token'); return; }
-        if (form.tokenAddress === 'btc') { toast.error('BTC invoices use manual mark-as-paid. Select an OP-20 token.'); return; }
 
         setSubmitting(true);
         const loadingToast = toast.loading('Creating invoice on-chain...');
@@ -151,7 +182,7 @@ export function CreateInvoice(): React.JSX.Element {
                             {!customToken ? (
                                 <div className="space-y-2">
                                     <div className="grid grid-cols-2 gap-2">
-                                        {knownTokens.filter(t => t.address !== 'btc').map((token) => (
+                                        {knownTokens.map((token) => (
                                             <button key={token.address} type="button"
                                                 onClick={() => updateField('tokenAddress', token.address)}
                                                 className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-left transition-all ${
@@ -162,13 +193,32 @@ export function CreateInvoice(): React.JSX.Element {
                                                 <span className="text-lg">{token.icon}</span>
                                                 <div>
                                                     <span className="block text-sm font-medium">{token.symbol}</span>
-                                                    <span className="block text-xs opacity-60">{token.name}</span>
+                                                    <span className="block text-xs opacity-60">{isBtcToken(token.address) ? 'Manual settlement' : token.name}</span>
                                                 </div>
                                             </button>
                                         ))}
                                     </div>
-                                    {knownTokens.filter(t => t.address !== 'btc').length === 0 && (
-                                        <p className="text-xs text-[var(--ink-light)] italic">No known OP-20 tokens. Enter a custom address.</p>
+                                    {/* Token balance display */}
+                                    {walletAddress && form.tokenAddress && !isBtc && (
+                                        <div className="flex items-center gap-2 px-3 py-2 bg-[var(--paper-bg)] rounded-lg border border-[var(--border-paper)]">
+                                            <span className="text-xs text-[var(--ink-light)]">Wallet balance:</span>
+                                            {balanceLoading ? (
+                                                <span className="text-xs text-[var(--ink-light)] animate-pulse">Loading...</span>
+                                            ) : tokenBalance !== null ? (
+                                                <span className="text-sm font-mono font-medium text-[var(--ink-dark)]">
+                                                    {formatTokenAmount(tokenBalance, decimals)} {selectedToken?.symbol ?? ''}
+                                                </span>
+                                            ) : (
+                                                <span className="text-xs text-[var(--ink-light)]">--</span>
+                                            )}
+                                        </div>
+                                    )}
+                                    {isBtc && (
+                                        <div className="px-3 py-2 bg-[var(--stamp-orange)]/10 border border-[var(--stamp-orange)]/30 rounded-lg">
+                                            <p className="text-xs text-[var(--stamp-orange)]">
+                                                BTC invoices use manual settlement. The payer sends BTC off-chain, then you mark it as paid with the tx hash.
+                                            </p>
+                                        </div>
                                     )}
                                     <button type="button" onClick={() => setCustomToken(true)}
                                         className="text-xs text-[var(--accent-gold)] hover:underline">
