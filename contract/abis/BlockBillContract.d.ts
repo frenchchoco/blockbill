@@ -72,6 +72,11 @@ export type GetInvoice = CallResult<
         deadline: bigint;
         taxBps: number;
         createdAtBlock: bigint;
+        paidBy: Address;
+        paidAtBlock: bigint;
+        memo: string;
+        btcTxHash: string;
+        lineItemCount: number;
     },
     OPNetEvent<never>[]
 >;
@@ -82,6 +87,8 @@ export type GetInvoice = CallResult<
 export type GetLineItems = CallResult<
     {
         count: number;
+        descriptions: string;
+        amounts: bigint;
     },
     OPNetEvent<never>[]
 >;

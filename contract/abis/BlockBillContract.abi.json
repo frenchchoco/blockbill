@@ -161,6 +161,26 @@
                 {
                     "name": "createdAtBlock",
                     "type": "UINT64"
+                },
+                {
+                    "name": "paidBy",
+                    "type": "ADDRESS"
+                },
+                {
+                    "name": "paidAtBlock",
+                    "type": "UINT64"
+                },
+                {
+                    "name": "memo",
+                    "type": "STRING"
+                },
+                {
+                    "name": "btcTxHash",
+                    "type": "STRING"
+                },
+                {
+                    "name": "lineItemCount",
+                    "type": "UINT16"
                 }
             ]
         },
@@ -179,6 +199,14 @@
                 {
                     "name": "count",
                     "type": "UINT16"
+                },
+                {
+                    "name": "descriptions",
+                    "type": "STRING"
+                },
+                {
+                    "name": "amounts",
+                    "type": "UINT256"
                 }
             ]
         },

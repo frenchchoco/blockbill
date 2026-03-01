@@ -56,13 +56,22 @@ export const BlockBillContractAbi = [
             { name: 'deadline', type: ABIDataTypes.UINT64 },
             { name: 'taxBps', type: ABIDataTypes.UINT16 },
             { name: 'createdAtBlock', type: ABIDataTypes.UINT64 },
+            { name: 'paidBy', type: ABIDataTypes.ADDRESS },
+            { name: 'paidAtBlock', type: ABIDataTypes.UINT64 },
+            { name: 'memo', type: ABIDataTypes.STRING },
+            { name: 'btcTxHash', type: ABIDataTypes.STRING },
+            { name: 'lineItemCount', type: ABIDataTypes.UINT16 },
         ],
         type: BitcoinAbiTypes.Function,
     },
     {
         name: 'getLineItems',
         inputs: [{ name: 'invoiceId', type: ABIDataTypes.UINT256 }],
-        outputs: [{ name: 'count', type: ABIDataTypes.UINT16 }],
+        outputs: [
+            { name: 'count', type: ABIDataTypes.UINT16 },
+            { name: 'descriptions', type: ABIDataTypes.STRING },
+            { name: 'amounts', type: ABIDataTypes.UINT256 },
+        ],
         type: BitcoinAbiTypes.Function,
     },
     {

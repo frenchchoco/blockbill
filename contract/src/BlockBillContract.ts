@@ -292,7 +292,7 @@ export class BlockBillContract extends OP_NET {
     }
 
     // =====================================================
-    // Read methods (stubs - to be implemented in next task)
+    // Read methods
     // =====================================================
 
     @method({ name: 'invoiceId', type: ABIDataTypes.UINT256 })
@@ -305,27 +305,118 @@ export class BlockBillContract extends OP_NET {
         { name: 'deadline', type: ABIDataTypes.UINT64 },
         { name: 'taxBps', type: ABIDataTypes.UINT16 },
         { name: 'createdAtBlock', type: ABIDataTypes.UINT64 },
+        { name: 'paidBy', type: ABIDataTypes.ADDRESS },
+        { name: 'paidAtBlock', type: ABIDataTypes.UINT64 },
+        { name: 'memo', type: ABIDataTypes.STRING },
+        { name: 'btcTxHash', type: ABIDataTypes.STRING },
+        { name: 'lineItemCount', type: ABIDataTypes.UINT16 },
     )
-    public getInvoice(_calldata: Calldata): BytesWriter {
-        throw new Revert('Not implemented');
+    public getInvoice(calldata: Calldata): BytesWriter {
+        const invoiceId: u256 = calldata.readU256();
+
+        const creator: Address = this.loadAddressAt(this.pCreator, invoiceId);
+        const token: Address = this.loadAddressAt(this.pToken, invoiceId);
+        const totalAmount: u256 = this.loadU256At(this.pTotalAmount, invoiceId);
+        const recipient: Address = this.loadAddressAt(this.pRecipient, invoiceId);
+        const status: u8 = this.loadU8At(this.pStatus, invoiceId);
+        const deadline: u64 = this.loadU64At(this.pDeadline, invoiceId);
+        const taxBps: u16 = this.loadU16At(this.pTaxBps, invoiceId);
+        const createdAtBlock: u64 = this.loadU64At(this.pCreatedAtBlock, invoiceId);
+        const paidBy: Address = this.loadAddressAt(this.pPaidBy, invoiceId);
+        const paidAtBlock: u64 = this.loadU64At(this.pPaidAtBlock, invoiceId);
+        const memo: string = this.loadLongString(this.pMemo, invoiceId);
+        const btcTxHash: string = this.loadShortString(this.pBtcTxHash, invoiceId);
+        const lineItemCount: u16 = this.loadU16At(this.pLineItemCount, invoiceId);
+
+        const writer: BytesWriter = new BytesWriter(500);
+        writer.writeAddress(creator);
+        writer.writeAddress(token);
+        writer.writeU256(totalAmount);
+        writer.writeAddress(recipient);
+        writer.writeU8(status);
+        writer.writeU64(deadline);
+        writer.writeU16(taxBps);
+        writer.writeU64(createdAtBlock);
+        writer.writeAddress(paidBy);
+        writer.writeU64(paidAtBlock);
+        writer.writeStringWithLength(memo);
+        writer.writeStringWithLength(btcTxHash);
+        writer.writeU16(lineItemCount);
+        return writer;
     }
 
     @method({ name: 'invoiceId', type: ABIDataTypes.UINT256 })
-    @returns({ name: 'count', type: ABIDataTypes.UINT16 })
-    public getLineItems(_calldata: Calldata): BytesWriter {
-        throw new Revert('Not implemented');
+    @returns(
+        { name: 'count', type: ABIDataTypes.UINT16 },
+        { name: 'descriptions', type: ABIDataTypes.STRING },
+        { name: 'amounts', type: ABIDataTypes.UINT256 },
+    )
+    public getLineItems(calldata: Calldata): BytesWriter {
+        const invoiceId: u256 = calldata.readU256();
+        const count: u16 = this.loadU16At(this.pLineItemCount, invoiceId);
+
+        const writer: BytesWriter = new BytesWriter(500);
+        writer.writeU16(count);
+
+        for (let i: u16 = 0; i < count; i++) {
+            const lineKey: u256 = SafeMath.add(
+                SafeMath.mul(invoiceId, u256.fromU32(MAX_LINE_ITEMS)),
+                u256.fromU32(<u32>i),
+            );
+            const desc: string = this.loadShortString(this.pLineDesc, lineKey);
+            const amount: u256 = this.loadU256At(this.pLineAmount, lineKey);
+
+            writer.writeStringWithLength(desc);
+            writer.writeU256(amount);
+        }
+
+        return writer;
     }
 
     @method({ name: 'creator', type: ABIDataTypes.ADDRESS })
     @returns({ name: 'count', type: ABIDataTypes.UINT256 })
-    public getInvoicesByCreator(_calldata: Calldata): BytesWriter {
-        throw new Revert('Not implemented');
+    public getInvoicesByCreator(calldata: Calldata): BytesWriter {
+        const creator: Address = calldata.readAddress();
+        const addrKey: u256 = u256.fromUint8ArrayBE(creator);
+        const count: u256 = this.loadU256At(this.pCreatorCount, addrKey);
+        const countU32: u32 = count.toU32();
+
+        const writer: BytesWriter = new BytesWriter(32 + countU32 * 32);
+        writer.writeU256(count);
+
+        for (let i: u32 = 0; i < countU32; i++) {
+            const listKey: u256 = SafeMath.add(
+                SafeMath.mul(addrKey, u256.fromU32(MAX_INDEX_ENTRIES)),
+                u256.fromU32(i),
+            );
+            const invoiceId: u256 = this.loadU256At(this.pCreatorList, listKey);
+            writer.writeU256(invoiceId);
+        }
+
+        return writer;
     }
 
     @method({ name: 'recipient', type: ABIDataTypes.ADDRESS })
     @returns({ name: 'count', type: ABIDataTypes.UINT256 })
-    public getInvoicesByRecipient(_calldata: Calldata): BytesWriter {
-        throw new Revert('Not implemented');
+    public getInvoicesByRecipient(calldata: Calldata): BytesWriter {
+        const recipient: Address = calldata.readAddress();
+        const addrKey: u256 = u256.fromUint8ArrayBE(recipient);
+        const count: u256 = this.loadU256At(this.pRecipientCount, addrKey);
+        const countU32: u32 = count.toU32();
+
+        const writer: BytesWriter = new BytesWriter(32 + countU32 * 32);
+        writer.writeU256(count);
+
+        for (let i: u32 = 0; i < countU32; i++) {
+            const listKey: u256 = SafeMath.add(
+                SafeMath.mul(addrKey, u256.fromU32(MAX_INDEX_ENTRIES)),
+                u256.fromU32(i),
+            );
+            const invoiceId: u256 = this.loadU256At(this.pRecipientList, listKey);
+            writer.writeU256(invoiceId);
+        }
+
+        return writer;
     }
 
     @method()
