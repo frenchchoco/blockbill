@@ -48,6 +48,7 @@ export function CreateInvoice(): React.JSX.Element {
     const [customToken, setCustomToken] = useState(false);
     const [showSeal, setShowSeal] = useState(false);
     const [tokenBalance, setTokenBalance] = useState<bigint | null>(null);
+    const [onChainDecimals, setOnChainDecimals] = useState<number | null>(null);
     const [balanceLoading, setBalanceLoading] = useState(false);
 
     const knownTokens = useMemo(() => getKnownTokens(network), [network]);
@@ -57,7 +58,8 @@ export function CreateInvoice(): React.JSX.Element {
         [form.tokenAddress, network],
     );
 
-    const decimals = selectedToken?.decimals ?? 8;
+    // Use on-chain decimals when available, fallback to config
+    const decimals = onChainDecimals ?? selectedToken?.decimals ?? 8;
 
     const updateField = useCallback(<K extends keyof InvoiceFormData>(
         field: K, value: InvoiceFormData[K],
@@ -98,9 +100,10 @@ export function CreateInvoice(): React.JSX.Element {
 
     const isBtc = isBtcToken(form.tokenAddress);
 
-    // Fetch token balance when token or wallet changes
+    // Fetch token balance and on-chain decimals when token or wallet changes
     useEffect(() => {
         setTokenBalance(null);
+        setOnChainDecimals(null);
         if (!address || !form.tokenAddress || isBtcToken(form.tokenAddress)) return;
 
         let cancelled = false;
@@ -108,15 +111,25 @@ export function CreateInvoice(): React.JSX.Element {
 
         const fetchBalance = async (): Promise<void> => {
             try {
-                // Use getContract without sender for read-only calls (matches blocktip pattern)
                 const tokenContract = contractService.getTokenContract(form.tokenAddress, network);
+
+                // Fetch on-chain decimals first
+                const decimalsResult = await tokenContract.decimals();
+                if (!cancelled && decimalsResult?.properties) {
+                    setOnChainDecimals(decimalsResult.properties.decimals);
+                }
+
+                // Fetch balance
                 const result = await tokenContract.balanceOf(address);
                 if (!cancelled && result?.properties) {
                     setTokenBalance(result.properties.balance ?? 0n);
                 }
             } catch (err: unknown) {
                 console.error('[BlockBill] Balance fetch failed:', err);
-                if (!cancelled) setTokenBalance(null);
+                if (!cancelled) {
+                    setTokenBalance(null);
+                    setOnChainDecimals(null);
+                }
             } finally {
                 if (!cancelled) setBalanceLoading(false);
             }
