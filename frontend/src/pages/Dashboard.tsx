@@ -29,6 +29,13 @@ export function Dashboard(): React.JSX.Element {
     const [loading, setLoading] = useState(false);
     const [totalCount, setTotalCount] = useState(0n);
 
+    // Clear invoices immediately when wallet changes
+    useEffect(() => {
+        setInvoices([]);
+        setTotalCount(0n);
+        contractService.clearCache();
+    }, [walletAddress]);
+
     const fetchInvoices = useCallback(async () => {
         if (!walletAddress || !address) return;
         setLoading(true);
