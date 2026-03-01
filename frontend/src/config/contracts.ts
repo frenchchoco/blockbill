@@ -7,7 +7,7 @@ export interface ContractAddresses {
 
 const CONTRACT_ADDRESSES: Map<Network, ContractAddresses> = new Map([
     [networks.opnetTestnet, {
-        blockbill: '', // Will be filled after testnet deployment
+        blockbill: 'opt1peucuyluv6a5a2rn2eddxpq08q7spms94p603tjk7g0mglwmr3nls36umdw',
     }],
     [networks.regtest, {
         blockbill: '', // Will be filled after regtest deployment
