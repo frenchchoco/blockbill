@@ -150,6 +150,10 @@ export function CreateInvoice(): React.JSX.Element {
         if (!walletAddress || submitting) return;
         if (parsedAmount === 0n) { toast.error('Amount must be greater than 0'); return; }
         if (!form.tokenAddress) { toast.error('Please select a token'); return; }
+        if (form.lineItems.length > 0 && lineItemsTotal > 0n && lineItemsTotal !== parsedAmount) {
+            toast.error('Line items total must equal the invoice amount');
+            return;
+        }
 
         setSubmitting(true);
         const loadingToast = toast.loading('Creating invoice on-chain...');
@@ -182,7 +186,7 @@ export function CreateInvoice(): React.JSX.Element {
         } finally {
             setSubmitting(false);
         }
-    }, [walletAddress, address, submitting, form, parsedAmount, taxBps, network, navigate]);
+    }, [walletAddress, address, submitting, form, parsedAmount, lineItemsTotal, taxBps, network, navigate]);
 
     const inputCls = 'w-full px-4 py-2.5 bg-[var(--paper-bg)] border border-[var(--border-paper)] rounded-lg text-[var(--ink-dark)] placeholder:text-[var(--ink-light)] focus:outline-none focus:border-[var(--accent-gold)] focus:ring-1 focus:ring-[var(--accent-gold)] transition-colors';
     const labelCls = 'block text-sm font-serif font-medium text-[var(--ink-dark)] mb-1.5';

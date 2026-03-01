@@ -53,7 +53,8 @@ export function PayInvoice(): React.JSX.Element {
                     lineItemCount: p.lineItemCount ?? 0,
                 });
             } catch (err: unknown) {
-                setError(err instanceof Error ? err.message : 'Failed to load invoice');
+                const msg = err instanceof Error ? err.message : String(err);
+                setError(msg.includes('unreachable') ? 'Invoice not found' : msg);
             } finally {
                 setLoading(false);
             }
