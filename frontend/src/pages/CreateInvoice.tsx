@@ -215,18 +215,24 @@ export function CreateInvoice(): React.JSX.Element {
             setSealConfirmed(false);
 
             const txId = receipt.transactionId;
+            console.log('[BlockBill] Create tx broadcast, receipt:', receipt);
+            console.log('[BlockBill] Polling for txId:', txId);
             const provider = providerService.getProvider(network);
 
-            // Poll in background — seal stamps when confirmed
+            // Poll in background — stamp when confirmed
             const pollConfirmation = async (): Promise<void> => {
+                let attempt = 0;
                 // eslint-disable-next-line no-constant-condition
                 while (true) {
                     await new Promise((r) => setTimeout(r, 5000));
+                    attempt++;
                     try {
+                        console.log(`[BlockBill] Poll attempt ${attempt} for tx:`, txId);
                         const tx = await provider.getTransaction(txId);
+                        console.log(`[BlockBill] Poll result:`, tx);
                         if (tx) { setSealConfirmed(true); return; }
-                    } catch {
-                        // tx not yet in a block — keep polling
+                    } catch (pollErr) {
+                        console.log(`[BlockBill] Poll error:`, pollErr);
                     }
                 }
             };
