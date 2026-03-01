@@ -68,7 +68,7 @@ Traditional invoicing requires trust: "Did they pay? When? How much?" BlockBill 
 | Page | Route | Description |
 |------|-------|-------------|
 | Landing | `/` | Project pitch + CTAs |
-| Create | `/create` | Invoice creation form with advanced details panel |
+| Create | `/create` | Split-layout invoice form with live preview |
 | Invoice | `/invoice/:id` | Public invoice view (no wallet needed) |
 | Pay | `/pay/:id` | Payment flow with approve + pay steps |
 | Dashboard | `/dashboard` | My invoices (created + received), filter by status |
