@@ -1,7 +1,7 @@
 import { getContract, OP_20_ABI } from 'opnet';
 import type { IOP20Contract } from 'opnet';
 import type { Network } from '@btc-vision/bitcoin';
-import type { Address } from '@btc-vision/transaction';
+import { Address } from '@btc-vision/transaction';
 import { providerService } from './ProviderService';
 import { BLOCKBILL_ABI } from '../abi/BlockBillABI';
 import type { IBlockBillContract } from '../abi/BlockBillABI';
@@ -21,15 +21,16 @@ class ContractService {
     }
 
     public getBlockBillContract(network: Network, sender?: Address): IBlockBillContract {
-        const address = getBlockBillAddress(network);
-        const key = `blockbill:${address}:${sender?.toString() ?? 'none'}`;
+        const addressStr = getBlockBillAddress(network);
+        const key = `blockbill:${addressStr}:${sender?.toString() ?? 'none'}`;
         const existing = this.contracts.get(key) as IBlockBillContract | undefined;
         if (existing) {
             return existing;
         }
         const provider = providerService.getProvider(network);
+        const contractAddress = Address.fromString(addressStr);
         const contract = getContract<IBlockBillContract>(
-            address, BLOCKBILL_ABI, provider, network, sender
+            contractAddress, BLOCKBILL_ABI, provider, network, sender
         );
         this.contracts.set(key, contract);
         return contract;
@@ -42,8 +43,9 @@ class ContractService {
             return existing;
         }
         const provider = providerService.getProvider(network);
+        const contractAddress = Address.fromString(tokenAddress);
         const contract = getContract<IOP20Contract>(
-            tokenAddress, OP_20_ABI, provider, network, sender
+            contractAddress, OP_20_ABI, provider, network, sender
         );
         this.contracts.set(key, contract);
         return contract;
