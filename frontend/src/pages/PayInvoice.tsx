@@ -32,21 +32,21 @@ export function PayInvoice(): React.JSX.Element {
         setLoading(true);
         const fetchInvoice = async (): Promise<void> => {
             try {
-                const contract = await contractService.getBlockBillContract(network);
+                const contract = contractService.getBlockBillContract(network);
                 const result = await contract.getInvoice(BigInt(id));
                 if (!result?.properties) { setError('Invoice not found'); return; }
                 const p = result.properties;
                 setInvoice({
                     id: BigInt(id),
-                    creator: p.creator?.toString() ?? '',
-                    token: p.token?.toString() ?? '',
+                    creator: (p.creator as Address)?.toHex() ?? '',
+                    token: (p.token as Address)?.toHex() ?? '',
                     totalAmount: p.totalAmount ?? 0n,
-                    recipient: p.recipient?.toString() ?? '',
+                    recipient: (p.recipient as Address)?.toHex() ?? '',
                     memo: p.memo ?? '',
                     deadline: p.deadline ?? 0n,
                     taxBps: p.taxBps ?? 0,
                     status: (p.status ?? 0) as InvoiceStatus,
-                    paidBy: p.paidBy?.toString() ?? '',
+                    paidBy: (p.paidBy as Address)?.toHex() ?? '',
                     paidAtBlock: p.paidAtBlock ?? 0n,
                     createdAtBlock: p.createdAtBlock ?? 0n,
                     btcTxHash: p.btcTxHash ?? '',
@@ -66,11 +66,12 @@ export function PayInvoice(): React.JSX.Element {
         setApproveStatus('processing');
 
         try {
-            const tokenContract = await contractService.getTokenContract(invoice.token, network, address ?? undefined);
-            const blockbillContract = await contractService.getBlockBillContract(network);
-            const rawAddr = blockbillContract.address;
-            if (!rawAddr) throw new Error('BlockBill contract address not found');
-            const spenderAddress = typeof rawAddr === 'string' ? Address.fromString(rawAddr) : rawAddr;
+            const tokenContract = contractService.getTokenContract(invoice.token, network, address ?? undefined);
+            // Resolve the BlockBill contract address to an Address object for the spender
+            const blockbillHex = contractService.getBlockBillContract(network).address;
+            const spenderAddress = typeof blockbillHex === 'string'
+                ? Address.fromString(blockbillHex)
+                : blockbillHex;
 
             const sim = await tokenContract.increaseAllowance(spenderAddress, invoice.totalAmount);
             await sim.sendTransaction({
@@ -91,7 +92,7 @@ export function PayInvoice(): React.JSX.Element {
         setPayStatus('processing');
 
         try {
-            const contract = await contractService.getBlockBillContract(network, address ?? undefined);
+            const contract = contractService.getBlockBillContract(network, address ?? undefined);
             const sim = await contract.payInvoice(BigInt(id));
             await sim.sendTransaction({
                 signer: null, mldsaSigner: null,

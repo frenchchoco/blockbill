@@ -7,6 +7,7 @@ import type {
     CallResult,
     BaseContractProperties,
 } from 'opnet';
+import type { Address } from '@btc-vision/transaction';
 
 export const BLOCKBILL_ABI: BitcoinInterfaceAbi = [
     {
@@ -106,21 +107,22 @@ export const BLOCKBILL_ABI: BitcoinInterfaceAbi = [
 ];
 
 // TypeScript interface for type-safe contract interaction
+// All ABIDataTypes.ADDRESS params MUST be Address objects at runtime.
 export interface IBlockBillContract extends BaseContractProperties {
     createInvoice(
-        token: string, totalAmount: bigint, recipient: string,
+        token: Address, totalAmount: bigint, recipient: Address,
         memo: string, deadline: bigint, taxBps: number, lineItemCount: number
     ): Promise<CallResult<{ invoiceId: bigint }, []>>;
 
     payInvoice(invoiceId: bigint): Promise<CallResult<{ success: boolean }, []>>;
     cancelInvoice(invoiceId: bigint): Promise<CallResult<{ success: boolean }, []>>;
     markAsPaidBTC(invoiceId: bigint, btcTxHash: string): Promise<CallResult<{ success: boolean }, []>>;
-    setFeeRecipient(newFeeRecipient: string): Promise<CallResult<{ success: boolean }, []>>;
+    setFeeRecipient(newFeeRecipient: Address): Promise<CallResult<{ success: boolean }, []>>;
 
     getInvoice(invoiceId: bigint): Promise<CallResult<{
-        creator: string; token: string; totalAmount: bigint; recipient: string;
+        creator: Address; token: Address; totalAmount: bigint; recipient: Address;
         status: number; deadline: bigint; taxBps: number; createdAtBlock: bigint;
-        paidBy: string; paidAtBlock: bigint; memo: string; btcTxHash: string;
+        paidBy: Address; paidAtBlock: bigint; memo: string; btcTxHash: string;
         lineItemCount: number;
     }, []>>;
 
@@ -128,7 +130,7 @@ export interface IBlockBillContract extends BaseContractProperties {
         count: number; descriptions: string; amounts: bigint;
     }, []>>;
 
-    getInvoicesByCreator(creator: string): Promise<CallResult<{ count: bigint }, []>>;
-    getInvoicesByRecipient(recipient: string): Promise<CallResult<{ count: bigint }, []>>;
+    getInvoicesByCreator(creator: Address): Promise<CallResult<{ count: bigint }, []>>;
+    getInvoicesByRecipient(recipient: Address): Promise<CallResult<{ count: bigint }, []>>;
     getInvoiceCount(): Promise<CallResult<{ count: bigint }, []>>;
 }

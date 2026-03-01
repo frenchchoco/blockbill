@@ -8,6 +8,7 @@ import type { InvoiceData } from '../types/invoice';
 import { useNetwork } from '../hooks/useNetwork';
 import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
+import type { Address } from '@btc-vision/transaction';
 
 type Tab = 'created' | 'received';
 type StatusFilter = 'all' | 'pending' | 'paid' | 'cancelled';
@@ -20,7 +21,7 @@ const FILTER_OPTIONS: readonly { key: StatusFilter; label: string; status: Invoi
 ];
 
 export function Dashboard(): React.JSX.Element {
-    const { walletAddress, openConnectModal } = useWalletConnect();
+    const { walletAddress, address, openConnectModal } = useWalletConnect();
     const { network } = useNetwork();
     const [activeTab, setActiveTab] = useState<Tab>('created');
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -29,16 +30,16 @@ export function Dashboard(): React.JSX.Element {
     const [totalCount, setTotalCount] = useState(0n);
 
     const fetchInvoices = useCallback(async () => {
-        if (!walletAddress) return;
+        if (!walletAddress || !address) return;
         setLoading(true);
 
         try {
-            const contract = await contractService.getBlockBillContract(network);
+            const contract = contractService.getBlockBillContract(network);
 
-            // Get invoice IDs for this wallet
+            // Pass the wallet's Address object (not string) for ABI ADDRESS params
             const result = activeTab === 'created'
-                ? await contract.getInvoicesByCreator(walletAddress)
-                : await contract.getInvoicesByRecipient(walletAddress);
+                ? await contract.getInvoicesByCreator(address)
+                : await contract.getInvoicesByRecipient(address);
 
             const count = result?.properties?.count ?? 0n;
             setTotalCount(count);
@@ -48,9 +49,11 @@ export function Dashboard(): React.JSX.Element {
                 return;
             }
 
-            // Fetch each invoice - the count response may include IDs after the count
+            // Fetch each invoice
             const countNum = Number(count);
             const fetchedInvoices: InvoiceData[] = [];
+            // Wallet hex for comparison with Address.toString() (which returns hex)
+            const walletHex = address.toHex().toLowerCase();
 
             for (let i = 1; i <= countNum && i <= 50; i++) {
                 try {
@@ -58,26 +61,31 @@ export function Dashboard(): React.JSX.Element {
                     if (!invResult?.properties) continue;
                     const p = invResult.properties;
 
+                    const creatorAddr = p.creator as Address | undefined;
+                    const tokenAddr = p.token as Address | undefined;
+                    const recipientAddr = p.recipient as Address | undefined;
+                    const paidByAddr = p.paidBy as Address | undefined;
+
                     const inv: InvoiceData = {
                         id: BigInt(i),
-                        creator: p.creator?.toString() ?? '',
-                        token: p.token?.toString() ?? '',
+                        creator: creatorAddr?.toHex() ?? '',
+                        token: tokenAddr?.toHex() ?? '',
                         totalAmount: p.totalAmount ?? 0n,
-                        recipient: p.recipient?.toString() ?? '',
+                        recipient: recipientAddr?.toHex() ?? '',
                         memo: p.memo ?? '',
                         deadline: p.deadline ?? 0n,
                         taxBps: p.taxBps ?? 0,
                         status: (p.status ?? 0) as InvoiceStatus,
-                        paidBy: p.paidBy?.toString() ?? '',
+                        paidBy: paidByAddr?.toHex() ?? '',
                         paidAtBlock: p.paidAtBlock ?? 0n,
                         createdAtBlock: p.createdAtBlock ?? 0n,
                         btcTxHash: p.btcTxHash ?? '',
                         lineItemCount: p.lineItemCount ?? 0,
                     };
 
-                    // Filter by tab
-                    const isCreator = inv.creator.toLowerCase() === walletAddress.toLowerCase();
-                    const isRecipient = inv.recipient.toLowerCase() === walletAddress.toLowerCase();
+                    // Filter by tab - compare hex representations
+                    const isCreator = inv.creator.toLowerCase() === walletHex;
+                    const isRecipient = inv.recipient.toLowerCase() === walletHex;
                     if (activeTab === 'created' && isCreator) fetchedInvoices.push(inv);
                     else if (activeTab === 'received' && isRecipient) fetchedInvoices.push(inv);
                 } catch {
@@ -91,7 +99,7 @@ export function Dashboard(): React.JSX.Element {
         } finally {
             setLoading(false);
         }
-    }, [walletAddress, activeTab, network]);
+    }, [walletAddress, address, activeTab, network]);
 
     useEffect(() => {
         void fetchInvoices();

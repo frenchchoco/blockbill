@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWalletConnect } from '@btc-vision/walletconnect';
+import { Address } from '@btc-vision/transaction';
 import toast from 'react-hot-toast';
 import { PaperCard } from '../components/common/PaperCard';
 import { StampBadge } from '../components/common/StampBadge';
@@ -111,7 +112,12 @@ export function CreateInvoice(): React.JSX.Element {
 
         const fetchBalance = async (): Promise<void> => {
             try {
-                const tokenContract = await contractService.getTokenContract(form.tokenAddress, network);
+                // Resolve the token address to hex if needed (e.g. custom P2OP input)
+                const resolvedHex = form.tokenAddress.startsWith('0x')
+                    ? form.tokenAddress
+                    : '0x' + (await contractService.resolveAddress(form.tokenAddress, network, true)).toHex();
+
+                const tokenContract = contractService.getTokenContract(resolvedHex, network);
 
                 // Fetch on-chain decimals first
                 const decimalsResult = await tokenContract.decimals();
@@ -149,9 +155,17 @@ export function CreateInvoice(): React.JSX.Element {
         const loadingToast = toast.loading('Creating invoice on-chain...');
 
         try {
-            const contract = await contractService.getBlockBillContract(network, address ?? undefined);
+            // Resolve token address to Address object
+            const tokenAddr = await contractService.resolveAddress(form.tokenAddress, network, true);
+
+            // Resolve recipient: if empty, use a zero-address placeholder
+            const recipientAddr = form.recipient
+                ? await contractService.resolveAddress(form.recipient, network, false)
+                : Address.dead();
+
+            const contract = contractService.getBlockBillContract(network, address ?? undefined);
             const sim = await contract.createInvoice(
-                form.tokenAddress, parsedAmount, form.recipient || '', form.memo || '',
+                tokenAddr, parsedAmount, recipientAddr, form.memo || '',
                 BigInt(form.deadline || '0'), taxBps, form.lineItems.length,
             );
 
