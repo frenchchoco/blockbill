@@ -4,6 +4,7 @@ import { useWalletConnect } from '@btc-vision/walletconnect';
 import toast from 'react-hot-toast';
 import { PaperCard } from '../components/common/PaperCard';
 import { StampBadge } from '../components/common/StampBadge';
+import { SealAnimation } from '../components/common/SealAnimation';
 import { InvoiceStatus } from '../types/invoice';
 import { useNetwork } from '../hooks/useNetwork';
 import { contractService } from '../services/ContractService';
@@ -45,6 +46,7 @@ export function CreateInvoice(): React.JSX.Element {
     const [showDetails, setShowDetails] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [customToken, setCustomToken] = useState(false);
+    const [showSeal, setShowSeal] = useState(false);
 
     const knownTokens = useMemo(() => getKnownTokens(network), [network]);
 
@@ -115,8 +117,7 @@ export function CreateInvoice(): React.JSX.Element {
             });
 
             toast.dismiss(loadingToast);
-            toast.success('Invoice created!');
-            navigate('/dashboard');
+            setShowSeal(true);
         } catch (err: unknown) {
             toast.dismiss(loadingToast);
             toast.error(err instanceof Error ? err.message : 'Transaction failed');
@@ -129,6 +130,8 @@ export function CreateInvoice(): React.JSX.Element {
     const labelCls = 'block text-sm font-serif font-medium text-[var(--ink-dark)] mb-1.5';
 
     return (
+        <>
+        {showSeal && <SealAnimation onComplete={() => navigate('/dashboard')} />}
         <div className="max-w-6xl mx-auto">
             <h1 className="text-3xl font-serif text-[var(--ink-dark)] mb-8 text-center">Create Invoice</h1>
 
@@ -370,5 +373,6 @@ export function CreateInvoice(): React.JSX.Element {
                 </div>
             </div>
         </div>
+        </>
     );
 }
