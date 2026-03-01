@@ -208,30 +208,26 @@ export function CreateInvoice(): React.JSX.Element {
                 network,
             });
 
-            // Step 4: Wait for block confirmation (poll every 5s, timeout 30s)
+            // Step 4: Wait for block confirmation (poll every 5s until confirmed)
             toast.dismiss(submitToast);
-            const confirmToast = toast.loading('Waiting for block confirmation...');
+            const confirmToast = toast.loading('Waiting for block confirmation — this may take a minute...');
 
             const txId = receipt.transactionId;
             const provider = providerService.getProvider(network);
-            let confirmed = false;
 
-            for (let attempt = 0; attempt < 6; attempt++) {
+            // eslint-disable-next-line no-constant-condition
+            while (true) {
                 await new Promise((r) => setTimeout(r, 5000));
                 try {
                     const tx = await provider.getTransaction(txId);
-                    if (tx) { confirmed = true; break; }
+                    if (tx) break;
                 } catch {
                     // tx not yet in a block — keep polling
                 }
             }
 
             toast.dismiss(confirmToast);
-            if (confirmed) {
-                toast.success('Invoice confirmed on-chain!');
-            } else {
-                toast.success('Transaction broadcast — confirmation may take a few moments.');
-            }
+            toast.success('Invoice confirmed on-chain!');
             setShowSeal(true);
         } catch (err: unknown) {
             toast.dismiss();

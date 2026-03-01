@@ -110,7 +110,9 @@ export function InvoiceView(): React.JSX.Element {
     const token = findToken(invoice.token, network);
     const decimals = token?.decimals ?? 8;
     const isPaid = invoice.status === InvoiceStatus.Paid;
-    const isCreator = address ? invoice.creator.toLowerCase() === address.toHex().toLowerCase() : false;
+    const normalizeHex = (h: string): string => h.replace(/^0x/i, '').toLowerCase();
+    const walletHex = address ? normalizeHex(address.toHex()) : '';
+    const isCreator = walletHex !== '' && normalizeHex(invoice.creator) === walletHex;
     const canPay = invoice.status === InvoiceStatus.Pending && !isCreator;
 
     return (
