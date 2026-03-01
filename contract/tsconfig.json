@@ -1,0 +1,10 @@
+{
+    "extends": "./node_modules/@btc-vision/assemblyscript/std/assembly.json",
+    "compilerOptions": {
+        "strict": true,
+        "target": "ESNext",
+        "module": "ESNext",
+        "experimentalDecorators": true
+    },
+    "include": ["src/**/*.ts"]
+}
