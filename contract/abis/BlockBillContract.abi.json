@@ -1,0 +1,236 @@
+{
+    "functions": [
+        {
+            "name": "createInvoice",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "token",
+                    "type": "ADDRESS"
+                },
+                {
+                    "name": "totalAmount",
+                    "type": "UINT256"
+                },
+                {
+                    "name": "recipient",
+                    "type": "ADDRESS"
+                },
+                {
+                    "name": "memo",
+                    "type": "STRING"
+                },
+                {
+                    "name": "deadline",
+                    "type": "UINT64"
+                },
+                {
+                    "name": "taxBps",
+                    "type": "UINT16"
+                },
+                {
+                    "name": "lineItemCount",
+                    "type": "UINT16"
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "invoiceId",
+                    "type": "UINT256"
+                }
+            ]
+        },
+        {
+            "name": "payInvoice",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "invoiceId",
+                    "type": "UINT256"
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "success",
+                    "type": "BOOL"
+                }
+            ]
+        },
+        {
+            "name": "cancelInvoice",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "invoiceId",
+                    "type": "UINT256"
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "success",
+                    "type": "BOOL"
+                }
+            ]
+        },
+        {
+            "name": "markAsPaidBTC",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "invoiceId",
+                    "type": "UINT256"
+                },
+                {
+                    "name": "btcTxHash",
+                    "type": "STRING"
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "success",
+                    "type": "BOOL"
+                }
+            ]
+        },
+        {
+            "name": "setFeeRecipient",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "newFeeRecipient",
+                    "type": "ADDRESS"
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "success",
+                    "type": "BOOL"
+                }
+            ]
+        },
+        {
+            "name": "getInvoice",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "invoiceId",
+                    "type": "UINT256"
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "creator",
+                    "type": "ADDRESS"
+                },
+                {
+                    "name": "token",
+                    "type": "ADDRESS"
+                },
+                {
+                    "name": "totalAmount",
+                    "type": "UINT256"
+                },
+                {
+                    "name": "recipient",
+                    "type": "ADDRESS"
+                },
+                {
+                    "name": "status",
+                    "type": "UINT8"
+                },
+                {
+                    "name": "deadline",
+                    "type": "UINT64"
+                },
+                {
+                    "name": "taxBps",
+                    "type": "UINT16"
+                },
+                {
+                    "name": "createdAtBlock",
+                    "type": "UINT64"
+                }
+            ]
+        },
+        {
+            "name": "getLineItems",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "invoiceId",
+                    "type": "UINT256"
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "count",
+                    "type": "UINT16"
+                }
+            ]
+        },
+        {
+            "name": "getInvoicesByCreator",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "creator",
+                    "type": "ADDRESS"
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "count",
+                    "type": "UINT256"
+                }
+            ]
+        },
+        {
+            "name": "getInvoicesByRecipient",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "recipient",
+                    "type": "ADDRESS"
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "count",
+                    "type": "UINT256"
+                }
+            ]
+        },
+        {
+            "name": "getInvoiceCount",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [],
+            "outputs": [
+                {
+                    "name": "count",
+                    "type": "UINT256"
+                }
+            ]
+        }
+    ],
+    "events": []
+}

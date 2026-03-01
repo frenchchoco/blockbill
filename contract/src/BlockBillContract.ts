@@ -4,12 +4,14 @@ import {
     Blockchain,
     BytesWriter,
     Calldata,
-    encodeSelector,
+    encodePointer,
+    EMPTY_POINTER,
     OP_NET,
     Revert,
-    Selector,
     SafeMath,
     StoredU256,
+    TransferHelper,
+    u256To30Bytes,
 } from '@btc-vision/btc-runtime/runtime';
 
 const STATUS_PENDING: u8 = 0;
@@ -20,19 +22,13 @@ const FEE_BPS: u256 = u256.fromU32(50);
 const BPS_DENOMINATOR: u256 = u256.fromU32(10000);
 const MAX_LINE_ITEMS: u32 = 10;
 
-export class BlockBillContract extends OP_NET {
-    // Selectors
-    private readonly createInvoiceSelector: Selector = encodeSelector('createInvoice(address,uint256,address,string,uint64,uint16)');
-    private readonly payInvoiceSelector: Selector = encodeSelector('payInvoice(uint256)');
-    private readonly cancelInvoiceSelector: Selector = encodeSelector('cancelInvoice(uint256)');
-    private readonly markAsPaidBTCSelector: Selector = encodeSelector('markAsPaidBTC(uint256,string)');
-    private readonly getInvoiceSelector: Selector = encodeSelector('getInvoice(uint256)');
-    private readonly getLineItemsSelector: Selector = encodeSelector('getLineItems(uint256)');
-    private readonly getInvoicesByCreatorSelector: Selector = encodeSelector('getInvoicesByCreator(address)');
-    private readonly getInvoicesByRecipientSelector: Selector = encodeSelector('getInvoicesByRecipient(address)');
-    private readonly setFeeRecipientSelector: Selector = encodeSelector('setFeeRecipient(address)');
-    private readonly getInvoiceCountSelector: Selector = encodeSelector('getInvoiceCount()');
+// Max invoices per creator/recipient for the index list key scheme
+const MAX_INDEX_ENTRIES: u32 = 1000;
 
+// Number of 32-byte slots for long string storage (7 * 32 = 224 bytes max)
+const LONG_STRING_MAX_SLOTS: u32 = 7;
+
+export class BlockBillContract extends OP_NET {
     // Storage pointers
     private readonly invoiceCountPointer: u16 = Blockchain.nextPointer;
     private readonly feeRecipientPointer: u16 = Blockchain.nextPointer;
@@ -64,144 +60,487 @@ export class BlockBillContract extends OP_NET {
     private readonly pRecipientList: u16 = Blockchain.nextPointer;
 
     // Stored values
-    private readonly invoiceCount: StoredU256 = new StoredU256(this.invoiceCountPointer, u256.Zero);
+    private readonly invoiceCount: StoredU256 = new StoredU256(
+        this.invoiceCountPointer,
+        EMPTY_POINTER,
+    );
 
     public constructor() {
         super();
     }
 
     public override onDeployment(_calldata: Calldata): void {
-        // Store deployer as owner and fee recipient
         const deployer: Address = Blockchain.tx.sender;
-        Blockchain.setStorageAt(this.ownerPointer, u256.Zero, deployer.toU256());
-        Blockchain.setStorageAt(this.feeRecipientPointer, u256.Zero, deployer.toU256());
+        this.storeAddressAt(this.ownerPointer, u256.Zero, deployer);
+        this.storeAddressAt(this.feeRecipientPointer, u256.Zero, deployer);
     }
 
-    public override callMethod(calldata: Calldata): BytesWriter {
-        const selector: Selector = calldata.readSelector();
+    // =====================================================
+    // Write methods (decorated for ABI generation)
+    // =====================================================
 
-        switch (selector) {
-            case this.createInvoiceSelector:
-                return this.createInvoice(calldata);
-            case this.payInvoiceSelector:
-                return this.payInvoice(calldata);
-            case this.cancelInvoiceSelector:
-                return this.cancelInvoice(calldata);
-            case this.markAsPaidBTCSelector:
-                return this.markAsPaidBTC(calldata);
-            case this.getInvoiceSelector:
-                return this._getInvoice(calldata);
-            case this.getLineItemsSelector:
-                return this._getLineItems(calldata);
-            case this.getInvoicesByCreatorSelector:
-                return this._getInvoicesByCreator(calldata);
-            case this.getInvoicesByRecipientSelector:
-                return this._getInvoicesByRecipient(calldata);
-            case this.setFeeRecipientSelector:
-                return this._setFeeRecipient(calldata);
-            case this.getInvoiceCountSelector:
-                return this._getInvoiceCount(calldata);
-            default:
-                return super.callMethod(calldata);
+    @method(
+        { name: 'token', type: ABIDataTypes.ADDRESS },
+        { name: 'totalAmount', type: ABIDataTypes.UINT256 },
+        { name: 'recipient', type: ABIDataTypes.ADDRESS },
+        { name: 'memo', type: ABIDataTypes.STRING },
+        { name: 'deadline', type: ABIDataTypes.UINT64 },
+        { name: 'taxBps', type: ABIDataTypes.UINT16 },
+        { name: 'lineItemCount', type: ABIDataTypes.UINT16 },
+    )
+    @returns({ name: 'invoiceId', type: ABIDataTypes.UINT256 })
+    public createInvoice(calldata: Calldata): BytesWriter {
+        // Read parameters
+        const token: Address = calldata.readAddress();
+        const totalAmount: u256 = calldata.readU256();
+        const recipient: Address = calldata.readAddress();
+        const memo: string = calldata.readStringWithLength();
+        const deadline: u64 = calldata.readU64();
+        const taxBps: u16 = calldata.readU16();
+        const lineItemCount: u16 = calldata.readU16();
+
+        // Validate
+        if (totalAmount == u256.Zero) {
+            throw new Revert('Total amount must be > 0');
         }
+
+        if (<u32>lineItemCount > MAX_LINE_ITEMS) {
+            throw new Revert('Too many line items');
+        }
+
+        // Increment invoice count to get new invoiceId
+        this.invoiceCount.set(SafeMath.add(this.invoiceCount.value, u256.One));
+        const invoiceId: u256 = this.invoiceCount.value;
+
+        const caller: Address = Blockchain.tx.sender;
+
+        // Store invoice fields
+        this.storeAddressAt(this.pCreator, invoiceId, caller);
+        this.storeAddressAt(this.pToken, invoiceId, token);
+        this.storeU256At(this.pTotalAmount, invoiceId, totalAmount);
+        this.storeAddressAt(this.pRecipient, invoiceId, recipient);
+        this.storeLongString(this.pMemo, invoiceId, memo);
+        this.storeU64At(this.pDeadline, invoiceId, deadline);
+        this.storeU16At(this.pTaxBps, invoiceId, taxBps);
+        this.storeU8At(this.pStatus, invoiceId, STATUS_PENDING);
+        this.storeU64At(this.pCreatedAtBlock, invoiceId, Blockchain.block.number);
+        this.storeU16At(this.pLineItemCount, invoiceId, lineItemCount);
+
+        // Store line items
+        for (let i: u16 = 0; i < lineItemCount; i++) {
+            const desc: string = calldata.readStringWithLength();
+            const amount: u256 = calldata.readU256();
+
+            const lineKey: u256 = SafeMath.add(
+                SafeMath.mul(invoiceId, u256.fromU32(MAX_LINE_ITEMS)),
+                u256.fromU32(<u32>i),
+            );
+            this.storeShortString(this.pLineDesc, lineKey, desc);
+            this.storeU256At(this.pLineAmount, lineKey, amount);
+        }
+
+        // Add to creator index
+        this.addToCreatorIndex(caller, invoiceId);
+
+        // Add to recipient index if recipient is not zero address
+        if (!recipient.isZero()) {
+            this.addToRecipientIndex(recipient, invoiceId);
+        }
+
+        // Return invoiceId
+        const writer: BytesWriter = new BytesWriter(32);
+        writer.writeU256(invoiceId);
+        return writer;
     }
 
-    // === Storage helpers ===
+    @method({ name: 'invoiceId', type: ABIDataTypes.UINT256 })
+    @returns({ name: 'success', type: ABIDataTypes.BOOL })
+    public payInvoice(calldata: Calldata): BytesWriter {
+        const invoiceId: u256 = calldata.readU256();
+        const caller: Address = Blockchain.tx.sender;
+
+        // Load and validate status
+        const status: u8 = this.loadU8At(this.pStatus, invoiceId);
+        if (status != STATUS_PENDING) {
+            throw new Revert('Invoice is not pending');
+        }
+
+        // Check deadline
+        const deadline: u64 = this.loadU64At(this.pDeadline, invoiceId);
+        if (deadline > 0 && Blockchain.block.number > deadline) {
+            throw new Revert('Invoice expired');
+        }
+
+        // Check recipient authorization
+        const recipient: Address = this.loadAddressAt(this.pRecipient, invoiceId);
+        if (!recipient.isZero() && !caller.equals(recipient)) {
+            throw new Revert('Not authorized');
+        }
+
+        // Load invoice data
+        const creator: Address = this.loadAddressAt(this.pCreator, invoiceId);
+        const totalAmount: u256 = this.loadU256At(this.pTotalAmount, invoiceId);
+        const token: Address = this.loadAddressAt(this.pToken, invoiceId);
+
+        // Calculate fee and creator amount
+        const fee: u256 = SafeMath.div(SafeMath.mul(totalAmount, FEE_BPS), BPS_DENOMINATOR);
+        const creatorAmount: u256 = SafeMath.sub(totalAmount, fee);
+
+        // Update state BEFORE external calls (checks-effects-interactions pattern)
+        this.storeU8At(this.pStatus, invoiceId, STATUS_PAID);
+        this.storeAddressAt(this.pPaidBy, invoiceId, caller);
+        this.storeU64At(this.pPaidAtBlock, invoiceId, Blockchain.block.number);
+
+        // Transfer tokens: payer -> creator (creatorAmount)
+        TransferHelper.transferFrom(token, caller, creator, creatorAmount);
+
+        // Transfer tokens: payer -> feeRecipient (fee)
+        if (fee > u256.Zero) {
+            const feeRecipient: Address = this.loadAddressAt(
+                this.feeRecipientPointer,
+                u256.Zero,
+            );
+            TransferHelper.transferFrom(token, caller, feeRecipient, fee);
+        }
+
+        const writer: BytesWriter = new BytesWriter(1);
+        writer.writeBoolean(true);
+        return writer;
+    }
+
+    @method({ name: 'invoiceId', type: ABIDataTypes.UINT256 })
+    @returns({ name: 'success', type: ABIDataTypes.BOOL })
+    public cancelInvoice(calldata: Calldata): BytesWriter {
+        const invoiceId: u256 = calldata.readU256();
+        const caller: Address = Blockchain.tx.sender;
+
+        // Verify caller is the creator
+        const creator: Address = this.loadAddressAt(this.pCreator, invoiceId);
+        if (!caller.equals(creator)) {
+            throw new Revert('Only creator can cancel');
+        }
+
+        // Verify status is pending
+        const status: u8 = this.loadU8At(this.pStatus, invoiceId);
+        if (status != STATUS_PENDING) {
+            throw new Revert('Invoice is not pending');
+        }
+
+        // Update status
+        this.storeU8At(this.pStatus, invoiceId, STATUS_CANCELLED);
+
+        const writer: BytesWriter = new BytesWriter(1);
+        writer.writeBoolean(true);
+        return writer;
+    }
+
+    @method(
+        { name: 'invoiceId', type: ABIDataTypes.UINT256 },
+        { name: 'btcTxHash', type: ABIDataTypes.STRING },
+    )
+    @returns({ name: 'success', type: ABIDataTypes.BOOL })
+    public markAsPaidBTC(calldata: Calldata): BytesWriter {
+        const invoiceId: u256 = calldata.readU256();
+        const btcTxHash: string = calldata.readStringWithLength();
+        const caller: Address = Blockchain.tx.sender;
+
+        // Verify caller is the creator
+        const creator: Address = this.loadAddressAt(this.pCreator, invoiceId);
+        if (!caller.equals(creator)) {
+            throw new Revert('Only creator can mark as paid');
+        }
+
+        // Verify status is pending
+        const status: u8 = this.loadU8At(this.pStatus, invoiceId);
+        if (status != STATUS_PENDING) {
+            throw new Revert('Invoice is not pending');
+        }
+
+        // Update status to PAID
+        this.storeU8At(this.pStatus, invoiceId, STATUS_PAID);
+
+        // Store BTC tx hash (short string, up to 31 bytes)
+        this.storeShortString(this.pBtcTxHash, invoiceId, btcTxHash);
+
+        // Store paid metadata
+        this.storeAddressAt(this.pPaidBy, invoiceId, caller);
+        this.storeU64At(this.pPaidAtBlock, invoiceId, Blockchain.block.number);
+
+        const writer: BytesWriter = new BytesWriter(1);
+        writer.writeBoolean(true);
+        return writer;
+    }
+
+    @method({ name: 'newFeeRecipient', type: ABIDataTypes.ADDRESS })
+    @returns({ name: 'success', type: ABIDataTypes.BOOL })
+    public setFeeRecipient(calldata: Calldata): BytesWriter {
+        const newFeeRecipient: Address = calldata.readAddress();
+        const caller: Address = Blockchain.tx.sender;
+
+        // Verify caller is the owner
+        const owner: Address = this.loadAddressAt(this.ownerPointer, u256.Zero);
+        if (!caller.equals(owner)) {
+            throw new Revert('Only owner can set fee recipient');
+        }
+
+        // Store new fee recipient
+        this.storeAddressAt(this.feeRecipientPointer, u256.Zero, newFeeRecipient);
+
+        const writer: BytesWriter = new BytesWriter(1);
+        writer.writeBoolean(true);
+        return writer;
+    }
+
+    // =====================================================
+    // Read methods (stubs - to be implemented in next task)
+    // =====================================================
+
+    @method({ name: 'invoiceId', type: ABIDataTypes.UINT256 })
+    @returns(
+        { name: 'creator', type: ABIDataTypes.ADDRESS },
+        { name: 'token', type: ABIDataTypes.ADDRESS },
+        { name: 'totalAmount', type: ABIDataTypes.UINT256 },
+        { name: 'recipient', type: ABIDataTypes.ADDRESS },
+        { name: 'status', type: ABIDataTypes.UINT8 },
+        { name: 'deadline', type: ABIDataTypes.UINT64 },
+        { name: 'taxBps', type: ABIDataTypes.UINT16 },
+        { name: 'createdAtBlock', type: ABIDataTypes.UINT64 },
+    )
+    public getInvoice(_calldata: Calldata): BytesWriter {
+        throw new Revert('Not implemented');
+    }
+
+    @method({ name: 'invoiceId', type: ABIDataTypes.UINT256 })
+    @returns({ name: 'count', type: ABIDataTypes.UINT16 })
+    public getLineItems(_calldata: Calldata): BytesWriter {
+        throw new Revert('Not implemented');
+    }
+
+    @method({ name: 'creator', type: ABIDataTypes.ADDRESS })
+    @returns({ name: 'count', type: ABIDataTypes.UINT256 })
+    public getInvoicesByCreator(_calldata: Calldata): BytesWriter {
+        throw new Revert('Not implemented');
+    }
+
+    @method({ name: 'recipient', type: ABIDataTypes.ADDRESS })
+    @returns({ name: 'count', type: ABIDataTypes.UINT256 })
+    public getInvoicesByRecipient(_calldata: Calldata): BytesWriter {
+        throw new Revert('Not implemented');
+    }
+
+    @method()
+    @returns({ name: 'count', type: ABIDataTypes.UINT256 })
+    public getInvoiceCount(_calldata: Calldata): BytesWriter {
+        const writer: BytesWriter = new BytesWriter(32);
+        writer.writeU256(this.invoiceCount.value);
+        return writer;
+    }
+
+    // =====================================================
+    // Storage helpers
+    // =====================================================
+
+    /**
+     * Builds a 32-byte storage key from a pointer (u16) and a u256 sub-key.
+     * The pointer occupies the first 2 bytes, the sub-key occupies the remaining 30 bytes.
+     */
+    protected buildKey(pointer: u16, key: u256): Uint8Array {
+        return encodePointer(pointer, u256To30Bytes(key));
+    }
 
     protected storeAddressAt(pointer: u16, key: u256, addr: Address): void {
-        Blockchain.setStorageAt(pointer, key, addr.toU256());
+        const storageKey: Uint8Array = this.buildKey(pointer, key);
+        Blockchain.setStorageAt(storageKey, addr);
     }
 
     protected loadAddressAt(pointer: u16, key: u256): Address {
-        const val: u256 = Blockchain.getStorageAt(pointer, key);
-        return Address.fromU256(val);
+        const storageKey: Uint8Array = this.buildKey(pointer, key);
+        const raw: Uint8Array = Blockchain.getStorageAt(storageKey);
+        return Address.fromUint8Array(raw);
     }
 
     protected storeU256At(pointer: u16, key: u256, value: u256): void {
-        Blockchain.setStorageAt(pointer, key, value);
+        const storageKey: Uint8Array = this.buildKey(pointer, key);
+        Blockchain.setStorageAt(storageKey, value.toUint8Array(true));
     }
 
     protected loadU256At(pointer: u16, key: u256): u256 {
-        return Blockchain.getStorageAt(pointer, key);
+        const storageKey: Uint8Array = this.buildKey(pointer, key);
+        const raw: Uint8Array = Blockchain.getStorageAt(storageKey);
+        return u256.fromUint8ArrayBE(raw);
     }
 
-    // For u8/u16/u64, we store them as u256
     protected storeU8At(pointer: u16, key: u256, value: u8): void {
-        Blockchain.setStorageAt(pointer, key, u256.fromU32(<u32>value));
+        this.storeU256At(pointer, key, u256.fromU32(<u32>value));
     }
 
     protected loadU8At(pointer: u16, key: u256): u8 {
-        const val: u256 = Blockchain.getStorageAt(pointer, key);
+        const val: u256 = this.loadU256At(pointer, key);
         return <u8>val.toU32();
     }
 
     protected storeU16At(pointer: u16, key: u256, value: u16): void {
-        Blockchain.setStorageAt(pointer, key, u256.fromU32(<u32>value));
+        this.storeU256At(pointer, key, u256.fromU32(<u32>value));
     }
 
     protected loadU16At(pointer: u16, key: u256): u16 {
-        const val: u256 = Blockchain.getStorageAt(pointer, key);
+        const val: u256 = this.loadU256At(pointer, key);
         return <u16>val.toU32();
     }
 
     protected storeU64At(pointer: u16, key: u256, value: u64): void {
-        Blockchain.setStorageAt(pointer, key, u256.fromU64(value));
+        this.storeU256At(pointer, key, u256.fromU64(value));
     }
 
     protected loadU64At(pointer: u16, key: u256): u64 {
-        const val: u256 = Blockchain.getStorageAt(pointer, key);
+        const val: u256 = this.loadU256At(pointer, key);
         return val.toU64();
     }
 
-    // Stub methods (will be implemented in next tasks)
-    private createInvoice(_calldata: Calldata): BytesWriter {
-        Revert('Not implemented');
-        return new BytesWriter(0);
+    // =====================================================
+    // Short string storage helpers (up to 31 bytes)
+    // Stores as two u256 slots: [length, packed-bytes]
+    // =====================================================
+
+    protected storeShortString(pointer: u16, baseKey: u256, value: string): void {
+        const encoded: ArrayBuffer = String.UTF8.encode(value);
+        const bytes: Uint8Array = Uint8Array.wrap(encoded);
+        const len: u32 = bytes.length < 31 ? bytes.length : 31;
+
+        const lenSlotKey: u256 = SafeMath.mul(baseKey, u256.fromU32(2));
+        const dataSlotKey: u256 = SafeMath.add(lenSlotKey, u256.One);
+
+        // Store length
+        this.storeU256At(pointer, lenSlotKey, u256.fromU32(len));
+
+        // Pack bytes left-aligned in a 32-byte array
+        const packed: Uint8Array = new Uint8Array(32);
+        for (let i: u32 = 0; i < len; i++) {
+            packed[i] = bytes[i];
+        }
+        const storageKey: Uint8Array = this.buildKey(pointer, dataSlotKey);
+        Blockchain.setStorageAt(storageKey, packed);
     }
 
-    private payInvoice(_calldata: Calldata): BytesWriter {
-        Revert('Not implemented');
-        return new BytesWriter(0);
+    protected loadShortString(pointer: u16, baseKey: u256): string {
+        const lenSlotKey: u256 = SafeMath.mul(baseKey, u256.fromU32(2));
+        const dataSlotKey: u256 = SafeMath.add(lenSlotKey, u256.One);
+
+        const len: u32 = this.loadU256At(pointer, lenSlotKey).toU32();
+        if (len == 0) {
+            return '';
+        }
+
+        const storageKey: Uint8Array = this.buildKey(pointer, dataSlotKey);
+        const packed: Uint8Array = Blockchain.getStorageAt(storageKey);
+
+        const actualLen: u32 = len < 31 ? len : 31;
+        const strBytes: Uint8Array = new Uint8Array(<i32>actualLen);
+        for (let i: u32 = 0; i < actualLen; i++) {
+            strBytes[i] = packed[i];
+        }
+
+        return String.UTF8.decode(strBytes.buffer);
     }
 
-    private cancelInvoice(_calldata: Calldata): BytesWriter {
-        Revert('Not implemented');
-        return new BytesWriter(0);
+    // =====================================================
+    // Long string storage helpers (up to 7 * 32 = 224 bytes)
+    // Slot 0 = byte length, Slots 1..7 = raw 32-byte chunks
+    // =====================================================
+
+    protected storeLongString(pointer: u16, baseKey: u256, value: string): void {
+        const encoded: ArrayBuffer = String.UTF8.encode(value);
+        const bytes: Uint8Array = Uint8Array.wrap(encoded);
+        const maxBytes: i32 = <i32>(LONG_STRING_MAX_SLOTS * 32);
+        const len: u32 = <u32>(bytes.length < maxBytes ? bytes.length : maxBytes);
+        const slotsNeeded: u32 = LONG_STRING_MAX_SLOTS + 1;
+        const base: u256 = SafeMath.mul(baseKey, u256.fromU32(slotsNeeded));
+
+        // Store length
+        this.storeU256At(pointer, base, u256.fromU32(len));
+
+        // Store data in 32-byte chunks
+        for (let i: u32 = 0; i < LONG_STRING_MAX_SLOTS; i++) {
+            const offset: u32 = i * 32;
+            if (offset >= len) break;
+
+            const chunk: Uint8Array = new Uint8Array(32);
+            const remaining: u32 = len - offset;
+            const chunkLen: u32 = remaining < 32 ? remaining : 32;
+
+            for (let j: u32 = 0; j < chunkLen; j++) {
+                chunk[j] = bytes[offset + j];
+            }
+
+            const slotKey: u256 = SafeMath.add(base, u256.fromU32(i + 1));
+            const storageKey: Uint8Array = this.buildKey(pointer, slotKey);
+            Blockchain.setStorageAt(storageKey, chunk);
+        }
     }
 
-    private markAsPaidBTC(_calldata: Calldata): BytesWriter {
-        Revert('Not implemented');
-        return new BytesWriter(0);
+    protected loadLongString(pointer: u16, baseKey: u256): string {
+        const slotsNeeded: u32 = LONG_STRING_MAX_SLOTS + 1;
+        const base: u256 = SafeMath.mul(baseKey, u256.fromU32(slotsNeeded));
+
+        const len: u32 = this.loadU256At(pointer, base).toU32();
+        if (len == 0) {
+            return '';
+        }
+
+        const maxBytes: u32 = LONG_STRING_MAX_SLOTS * 32;
+        const actualLen: u32 = len < maxBytes ? len : maxBytes;
+        const result: Uint8Array = new Uint8Array(<i32>actualLen);
+
+        for (let i: u32 = 0; i < LONG_STRING_MAX_SLOTS; i++) {
+            const offset: u32 = i * 32;
+            if (offset >= actualLen) break;
+
+            const slotKey: u256 = SafeMath.add(base, u256.fromU32(i + 1));
+            const storageKey: Uint8Array = this.buildKey(pointer, slotKey);
+            const chunk: Uint8Array = Blockchain.getStorageAt(storageKey);
+
+            const remaining: u32 = actualLen - offset;
+            const chunkLen: u32 = remaining < 32 ? remaining : 32;
+
+            for (let j: u32 = 0; j < chunkLen; j++) {
+                result[offset + j] = chunk[j];
+            }
+        }
+
+        return String.UTF8.decode(result.buffer);
     }
 
-    private _getInvoice(_calldata: Calldata): BytesWriter {
-        Revert('Not implemented');
-        return new BytesWriter(0);
+    // =====================================================
+    // Index management helpers
+    // =====================================================
+
+    private addToCreatorIndex(creator: Address, invoiceId: u256): void {
+        const addrKey: u256 = u256.fromUint8ArrayBE(creator);
+        const count: u256 = this.loadU256At(this.pCreatorCount, addrKey);
+        const countU32: u32 = count.toU32();
+
+        // Store invoiceId at list[count]
+        const listKey: u256 = SafeMath.add(
+            SafeMath.mul(addrKey, u256.fromU32(MAX_INDEX_ENTRIES)),
+            u256.fromU32(countU32),
+        );
+        this.storeU256At(this.pCreatorList, listKey, invoiceId);
+
+        // Increment count
+        this.storeU256At(this.pCreatorCount, addrKey, SafeMath.add(count, u256.One));
     }
 
-    private _getLineItems(_calldata: Calldata): BytesWriter {
-        Revert('Not implemented');
-        return new BytesWriter(0);
-    }
+    private addToRecipientIndex(recipient: Address, invoiceId: u256): void {
+        const addrKey: u256 = u256.fromUint8ArrayBE(recipient);
+        const count: u256 = this.loadU256At(this.pRecipientCount, addrKey);
+        const countU32: u32 = count.toU32();
 
-    private _getInvoicesByCreator(_calldata: Calldata): BytesWriter {
-        Revert('Not implemented');
-        return new BytesWriter(0);
-    }
+        const listKey: u256 = SafeMath.add(
+            SafeMath.mul(addrKey, u256.fromU32(MAX_INDEX_ENTRIES)),
+            u256.fromU32(countU32),
+        );
+        this.storeU256At(this.pRecipientList, listKey, invoiceId);
 
-    private _getInvoicesByRecipient(_calldata: Calldata): BytesWriter {
-        Revert('Not implemented');
-        return new BytesWriter(0);
-    }
-
-    private _setFeeRecipient(_calldata: Calldata): BytesWriter {
-        Revert('Not implemented');
-        return new BytesWriter(0);
-    }
-
-    private _getInvoiceCount(_calldata: Calldata): BytesWriter {
-        const writer: BytesWriter = new BytesWriter(32);
-        writer.writeU256(this.invoiceCount.get());
-        return writer;
+        this.storeU256At(this.pRecipientCount, addrKey, SafeMath.add(count, u256.One));
     }
 }
