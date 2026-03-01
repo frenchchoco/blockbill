@@ -12,7 +12,7 @@ function networkKey(n: Network): string {
 // Keyed by bech32Opnet (taproot) prefix to avoid reference comparison issues
 const CONTRACT_ADDRESSES: Record<string, ContractAddresses> = {
     [networkKey(networks.opnetTestnet)]: {
-        blockbill: 'opt1sqqq495j4xkedr2vec7lpueh46xgwgal6aqvjqxrj',
+        blockbill: '0xcf31c27f8cd769d50e6acb5a6081e707a01dc0b50e9f15cade43f68fbb638cff',
     },
     [networkKey(networks.regtest)]: {
         blockbill: '',

@@ -18,7 +18,7 @@ const BTC_TOKEN: TokenInfo = {
 };
 
 const MOTO_TOKEN_TESTNET: TokenInfo = {
-    address: 'opt1sqzkx6wm5acawl9m6nay2mjsm6wagv7gazcgtczds',
+    address: '0xfd4473840751d58d9f8b73bdd57d6c5260453d5518bd7cd02d0a4cf3df9bf4dd',
     symbol: 'MOTO',
     name: 'MOTO Token',
     decimals: 8,
@@ -26,7 +26,7 @@ const MOTO_TOKEN_TESTNET: TokenInfo = {
 };
 
 const BLOCK_TOKEN_TESTNET: TokenInfo = {
-    address: 'opt1sqp0tgh4tvm254e4pwgcmyf7xu3yxn9vkvgznf2c7',
+    address: '0x62b1338225dfce319f56600d8de6ce34e3e141c970a91f39f7ce2d5cd6d23076',
     symbol: 'BLOCK',
     name: 'BLOCK Token',
     decimals: 8,
