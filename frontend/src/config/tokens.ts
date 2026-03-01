@@ -18,7 +18,7 @@ const BTC_TOKEN: TokenInfo = {
 };
 
 const MOTO_TOKEN_TESTNET: TokenInfo = {
-    address: 'opt1pl4z88pq8282cm8utww7a2ltv2fsy2024rz7he5pdpfx08hum7nwsfhyq0p',
+    address: 'opt1sqzkx6wm5acawl9m6nay2mjsm6wagv7gazcgtczds',
     symbol: 'MOTO',
     name: 'MOTO Token',
     decimals: 8,
