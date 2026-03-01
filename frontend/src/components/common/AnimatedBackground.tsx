@@ -1,21 +1,56 @@
 import { useEffect, useRef } from 'react';
 
-interface Particle {
+interface Stamp {
     x: number;
     y: number;
-    vx: number;
-    vy: number;
-    radius: number;
+    text: string;
+    rotation: number;
+    size: number;
+    color: string;
+    phase: 'appear' | 'hold' | 'fade';
+    life: number;
+    maxLife: number;
+    scale: number;
     opacity: number;
+    borderWidth: number;
 }
 
-const PARTICLE_COUNT = 45;
-const CONNECTION_DISTANCE = 150;
-const SPEED = 0.3;
+const STAMP_TEXTS = ['PAID', '\u20BF', 'VERIFIED', 'ON-CHAIN', 'L1', 'SETTLED', '\u2713', 'PROOF', 'BTC'];
+
+const COLORS = [
+    'rgba(139, 105, 20, A)',   // gold
+    'rgba(198, 40, 40, A)',    // red
+    'rgba(46, 125, 50, A)',    // green
+    'rgba(93, 64, 55, A)',     // brown
+    'rgba(141, 110, 99, A)',   // light brown
+];
+
+const MAX_STAMPS = 6;
+const SPAWN_INTERVAL = 2800;
+const APPEAR_DURATION = 12;
+const HOLD_DURATION = 120;
+const FADE_DURATION = 80;
+
+function createStamp(canvasW: number, canvasH: number): Stamp {
+    const margin = 100;
+    return {
+        x: margin + Math.random() * (canvasW - margin * 2),
+        y: margin + Math.random() * (canvasH - margin * 2),
+        text: STAMP_TEXTS[Math.floor(Math.random() * STAMP_TEXTS.length)],
+        rotation: (Math.random() - 0.5) * 0.3,
+        size: 14 + Math.random() * 18,
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        phase: 'appear',
+        life: 0,
+        maxLife: APPEAR_DURATION + HOLD_DURATION + FADE_DURATION,
+        scale: 2.5,
+        opacity: 0,
+        borderWidth: 1.5 + Math.random() * 1.5,
+    };
+}
 
 export function AnimatedBackground(): React.JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const particlesRef = useRef<Particle[]>([]);
     const animFrameRef = useRef<number>(0);
 
     useEffect(() => {
@@ -32,59 +67,80 @@ export function AnimatedBackground(): React.JSX.Element {
         resize();
         window.addEventListener('resize', resize);
 
-        // Init particles
-        const particles: Particle[] = [];
-        for (let i = 0; i < PARTICLE_COUNT; i++) {
-            particles.push({
-                x: Math.random() * canvas.width,
-                y: Math.random() * canvas.height,
-                vx: (Math.random() - 0.5) * SPEED,
-                vy: (Math.random() - 0.5) * SPEED,
-                radius: Math.random() * 2 + 1,
-                opacity: Math.random() * 0.3 + 0.1,
-            });
-        }
-        particlesRef.current = particles;
-
-        const goldR = 139, goldG = 105, goldB = 20; // --accent-gold #8B6914
+        const stamps: Stamp[] = [];
+        let framesSinceSpawn = SPAWN_INTERVAL;
 
         const animate = (): void => {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Update and draw particles
-            for (const p of particles) {
-                p.x += p.vx;
-                p.y += p.vy;
-
-                // Wrap around edges
-                if (p.x < 0) p.x = canvas.width;
-                if (p.x > canvas.width) p.x = 0;
-                if (p.y < 0) p.y = canvas.height;
-                if (p.y > canvas.height) p.y = 0;
-
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-                ctx.fillStyle = `rgba(${goldR}, ${goldG}, ${goldB}, ${p.opacity})`;
-                ctx.fill();
+            // Spawn new stamps
+            framesSinceSpawn++;
+            if (framesSinceSpawn >= SPAWN_INTERVAL / 16 && stamps.length < MAX_STAMPS) {
+                stamps.push(createStamp(canvas.width, canvas.height));
+                framesSinceSpawn = 0;
             }
 
-            // Draw connections
-            for (let i = 0; i < particles.length; i++) {
-                for (let j = i + 1; j < particles.length; j++) {
-                    const dx = particles[i].x - particles[j].x;
-                    const dy = particles[i].y - particles[j].y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
+            // Update and draw stamps
+            for (let i = stamps.length - 1; i >= 0; i--) {
+                const s = stamps[i];
+                s.life++;
 
-                    if (dist < CONNECTION_DISTANCE) {
-                        const alpha = (1 - dist / CONNECTION_DISTANCE) * 0.08;
-                        ctx.beginPath();
-                        ctx.moveTo(particles[i].x, particles[i].y);
-                        ctx.lineTo(particles[j].x, particles[j].y);
-                        ctx.strokeStyle = `rgba(${goldR}, ${goldG}, ${goldB}, ${alpha})`;
-                        ctx.lineWidth = 0.5;
-                        ctx.stroke();
-                    }
+                // Phase transitions
+                if (s.life <= APPEAR_DURATION) {
+                    s.phase = 'appear';
+                    const t = s.life / APPEAR_DURATION;
+                    // Stamp drop effect: scale down from big, bounce slightly
+                    s.scale = 1 + (1.5 * (1 - t) * (1 - t));
+                    s.opacity = t * 0.06;
+                } else if (s.life <= APPEAR_DURATION + HOLD_DURATION) {
+                    s.phase = 'hold';
+                    s.scale = 1;
+                    s.opacity = 0.06;
+                } else {
+                    s.phase = 'fade';
+                    const t = (s.life - APPEAR_DURATION - HOLD_DURATION) / FADE_DURATION;
+                    s.scale = 1;
+                    s.opacity = 0.06 * (1 - t);
                 }
+
+                // Remove dead stamps
+                if (s.life >= s.maxLife) {
+                    stamps.splice(i, 1);
+                    continue;
+                }
+
+                // Draw stamp
+                ctx.save();
+                ctx.translate(s.x, s.y);
+                ctx.rotate(s.rotation);
+                ctx.scale(s.scale, s.scale);
+
+                const alpha = s.opacity.toFixed(3);
+                const fillColor = s.color.replace('A', alpha);
+                const strokeColor = s.color.replace('A', (s.opacity * 1.5).toFixed(3));
+
+                // Stamp border (rounded rect)
+                const text = s.text;
+                ctx.font = `bold ${s.size}px "Playfair Display", Georgia, serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                const metrics = ctx.measureText(text);
+                const padX = s.size * 0.6;
+                const padY = s.size * 0.35;
+                const w = metrics.width + padX * 2;
+                const h = s.size + padY * 2;
+
+                ctx.strokeStyle = strokeColor;
+                ctx.lineWidth = s.borderWidth;
+                ctx.beginPath();
+                ctx.roundRect(-w / 2, -h / 2, w, h, 3);
+                ctx.stroke();
+
+                // Stamp text
+                ctx.fillStyle = fillColor;
+                ctx.fillText(text, 0, 1);
+
+                ctx.restore();
             }
 
             animFrameRef.current = requestAnimationFrame(animate);
