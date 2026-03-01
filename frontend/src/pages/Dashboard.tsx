@@ -217,7 +217,7 @@ export function Dashboard(): React.JSX.Element {
                                             className="text-sm text-[var(--accent-gold)] hover:text-[var(--accent-gold-light)] transition-colors">
                                             View
                                         </Link>
-                                        {invoice.status === InvoiceStatus.Pending && (
+                                        {invoice.status === InvoiceStatus.Pending && activeTab === 'received' && (
                                             <Link to={`/pay/${invoice.id.toString()}`}
                                                 className="text-sm text-white bg-[var(--accent-gold)] px-3 py-1 rounded hover:bg-[var(--accent-gold-light)] transition-colors">
                                                 Pay
