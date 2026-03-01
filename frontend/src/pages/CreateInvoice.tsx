@@ -10,6 +10,7 @@ import { InvoiceStatus } from '../types/invoice';
 import { useNetwork } from '../hooks/useNetwork';
 import { useAddressValidation } from '../hooks/useAddressValidation';
 import { contractService } from '../services/ContractService';
+import { providerService } from '../services/ProviderService';
 import { getKnownTokens, findToken, parseTokenAmount, formatTokenAmount, formatAddress } from '../config/tokens';
 import type { TokenInfo } from '../config/tokens';
 
@@ -196,7 +197,10 @@ export function CreateInvoice(): React.JSX.Element {
             }
 
             // Step 3: Send transaction (wallet handles signing)
-            await simulation.sendTransaction({
+            toast.dismiss(loadingToast);
+            const submitToast = toast.loading('Submitting transaction...');
+
+            const receipt = await simulation.sendTransaction({
                 signer: null,
                 mldsaSigner: null,
                 refundTo: walletAddress,
@@ -204,10 +208,33 @@ export function CreateInvoice(): React.JSX.Element {
                 network,
             });
 
-            toast.dismiss(loadingToast);
+            // Step 4: Wait for block confirmation (poll every 5s, timeout 30s)
+            toast.dismiss(submitToast);
+            const confirmToast = toast.loading('Waiting for block confirmation...');
+
+            const txId = receipt.transactionId;
+            const provider = providerService.getProvider(network);
+            let confirmed = false;
+
+            for (let attempt = 0; attempt < 6; attempt++) {
+                await new Promise((r) => setTimeout(r, 5000));
+                try {
+                    const tx = await provider.getTransaction(txId);
+                    if (tx) { confirmed = true; break; }
+                } catch {
+                    // tx not yet in a block — keep polling
+                }
+            }
+
+            toast.dismiss(confirmToast);
+            if (confirmed) {
+                toast.success('Invoice confirmed on-chain!');
+            } else {
+                toast.success('Transaction broadcast — confirmation may take a few moments.');
+            }
             setShowSeal(true);
         } catch (err: unknown) {
-            toast.dismiss(loadingToast);
+            toast.dismiss();
             const msg = err instanceof Error ? err.message : String(err);
             toast.error(msg.includes('unreachable') ? 'Contract reverted — check inputs and try again' : msg);
         } finally {

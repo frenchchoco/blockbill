@@ -1,5 +1,6 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { useWalletConnect } from '@btc-vision/walletconnect';
 import QRCode from 'qrcode';
 import { PaperCard } from '../components/common/PaperCard';
 import { StampBadge } from '../components/common/StampBadge';
@@ -13,6 +14,7 @@ import type { Address } from '@btc-vision/transaction';
 export function InvoiceView(): React.JSX.Element {
     const { id } = useParams<{ id: string }>();
     const { network } = useNetwork();
+    const { address } = useWalletConnect();
     const [invoice, setInvoice] = useState<InvoiceData | null>(null);
     const [lineItems, setLineItems] = useState<readonly LineItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -108,6 +110,8 @@ export function InvoiceView(): React.JSX.Element {
     const token = findToken(invoice.token, network);
     const decimals = token?.decimals ?? 8;
     const isPaid = invoice.status === InvoiceStatus.Paid;
+    const isCreator = address ? invoice.creator.toLowerCase() === address.toHex().toLowerCase() : false;
+    const canPay = invoice.status === InvoiceStatus.Pending && !isCreator;
 
     return (
         <div className="max-w-2xl mx-auto">
@@ -210,7 +214,7 @@ export function InvoiceView(): React.JSX.Element {
                 )}
 
                 <div className="flex flex-col sm:flex-row gap-3 pt-6 border-t border-[var(--border-paper)]">
-                    {invoice.status === InvoiceStatus.Pending && (
+                    {canPay && (
                         <Link to={`/pay/${id}`} className="flex-1 inline-flex items-center justify-center px-6 py-3 bg-[var(--accent-gold)] text-white font-medium rounded-lg hover:bg-[var(--accent-gold-light)] transition-colors shadow-md text-center">
                             Pay Invoice
                         </Link>

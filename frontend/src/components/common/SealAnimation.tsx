@@ -4,118 +4,118 @@ interface SealAnimationProps {
     readonly onComplete: () => void;
 }
 
-type Phase = 'paper' | 'fold' | 'seal' | 'glow' | 'done';
+type Phase = 'enter' | 'stamp' | 'imprint' | 'reveal' | 'done';
 
 export function SealAnimation({ onComplete }: SealAnimationProps): React.JSX.Element {
-    const [phase, setPhase] = useState<Phase>('paper');
+    const [phase, setPhase] = useState<Phase>('enter');
 
     useEffect(() => {
         const timers = [
-            setTimeout(() => setPhase('fold'), 800),
-            setTimeout(() => setPhase('seal'), 2000),
-            setTimeout(() => setPhase('glow'), 3200),
-            setTimeout(() => setPhase('done'), 4600),
-            setTimeout(onComplete, 5200),
+            setTimeout(() => setPhase('stamp'), 600),
+            setTimeout(() => setPhase('imprint'), 1200),
+            setTimeout(() => setPhase('reveal'), 2200),
+            setTimeout(() => setPhase('done'), 3400),
+            setTimeout(onComplete, 4000),
         ];
         return () => timers.forEach(clearTimeout);
     }, [onComplete]);
 
+    const past = (target: Phase): boolean => {
+        const order: Phase[] = ['enter', 'stamp', 'imprint', 'reveal', 'done'];
+        return order.indexOf(phase) >= order.indexOf(target);
+    };
+
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--ink-dark)]/60 backdrop-blur-sm animate-[fadeOverlay_0.3s_ease-out]">
-            <div className="relative w-72 h-96 flex items-center justify-center">
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+            {/* Overlay */}
+            <div className="absolute inset-0 bg-[#1a1410]/70 backdrop-blur-[6px] animate-[sealFadeIn_0.4s_ease-out]" />
 
-                {/* Invoice paper */}
-                <div className={`absolute w-56 transition-all duration-700 ease-in-out ${
-                    phase === 'paper'
-                        ? 'opacity-100 translate-y-0 scale-100'
-                        : 'opacity-0 -translate-y-8 scale-75'
+            <div className="relative flex flex-col items-center gap-8">
+                {/* Parchment card */}
+                <div className={`relative transition-all duration-700 ease-out ${
+                    past('enter') ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-6 scale-95'
                 }`}>
-                    <div className="bg-[var(--paper-card)] border border-[var(--border-paper)] rounded-lg p-5 shadow-xl">
-                        <div className="h-3 w-20 bg-[var(--border-paper)] rounded mb-3" />
-                        <div className="h-2 w-full bg-[var(--border-paper)]/60 rounded mb-2" />
-                        <div className="h-2 w-3/4 bg-[var(--border-paper)]/60 rounded mb-2" />
-                        <div className="h-2 w-5/6 bg-[var(--border-paper)]/60 rounded mb-4" />
-                        <div className="h-px w-full bg-[var(--border-paper)] mb-3" />
-                        <div className="h-2 w-1/2 bg-[var(--border-paper)]/40 rounded mb-2" />
-                        <div className="h-2 w-2/3 bg-[var(--border-paper)]/40 rounded mb-4" />
-                        <div className="flex justify-end">
-                            <div className="h-4 w-16 bg-[var(--accent-gold)]/30 rounded" />
-                        </div>
-                    </div>
-                </div>
+                    <div className="w-72 bg-[#FFFEF7] rounded-sm shadow-[0_20px_60px_rgba(0,0,0,0.3)] overflow-hidden">
+                        {/* Paper texture overlay */}
+                        <div className="absolute inset-0 opacity-[0.03]"
+                            style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'200\' height=\'200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'n\'%3E%3CfeTurbulence baseFrequency=\'0.8\' numOctaves=\'4\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23n)\'/%3E%3C/svg%3E")' }} />
 
-                {/* Envelope */}
-                <div className={`absolute w-64 transition-all duration-700 ${
-                    phase === 'paper' ? 'opacity-0 translate-y-12 scale-90' : 'opacity-100 translate-y-0 scale-100'
-                }`}>
-                    {/* Envelope body */}
-                    <div className="relative">
-                        {/* Back of envelope */}
-                        <div className="w-64 h-44 bg-[var(--paper-card-dark)] border border-[var(--border-paper)] rounded-lg shadow-2xl overflow-hidden">
-                            {/* Inner V pattern (visible when flap is open) */}
-                            <div className="absolute inset-0 flex items-start justify-center pt-2">
-                                <div className="w-0 h-0 border-l-[120px] border-r-[120px] border-t-[70px] border-l-transparent border-r-transparent border-t-[var(--border-paper)]/20" />
+                        <div className="p-8 pb-20 relative">
+                            {/* Header lines */}
+                            <div className="flex items-center gap-3 mb-6">
+                                <div className="h-[1px] flex-1 bg-[#3E2723]/10" />
+                                <span className="text-[9px] tracking-[0.3em] uppercase text-[#3E2723]/30 font-serif">BlockBill</span>
+                                <div className="h-[1px] flex-1 bg-[#3E2723]/10" />
                             </div>
-                            {/* Bottom V pattern */}
-                            <div className="absolute bottom-0 left-0 right-0 flex justify-center">
-                                <div className="w-0 h-0 border-l-[130px] border-r-[130px] border-b-[80px] border-l-transparent border-r-transparent border-b-[var(--paper-card)]" />
-                            </div>
-                        </div>
 
-                        {/* Envelope flap */}
-                        <div
-                            className={`absolute -top-px left-0 right-0 flex justify-center transition-all origin-top ${
-                                phase === 'fold' ? 'duration-700' : 'duration-500'
-                            }`}
-                            style={{
-                                transform: phase === 'fold' || phase === 'seal' || phase === 'glow' || phase === 'done'
-                                    ? 'perspective(400px) rotateX(180deg)'
-                                    : 'perspective(400px) rotateX(0deg)',
-                                transformStyle: 'preserve-3d',
-                            }}
-                        >
-                            {/* Flap front */}
-                            <div className="w-0 h-0 border-l-[132px] border-r-[132px] border-t-[80px] border-l-transparent border-r-transparent border-t-[var(--paper-card-dark)] drop-shadow-sm"
-                                style={{ backfaceVisibility: 'hidden' }} />
-                            {/* Flap back (visible when folded) */}
-                            <div className="absolute inset-0 flex justify-center"
-                                style={{ backfaceVisibility: 'hidden', transform: 'rotateX(180deg)' }}>
-                                <div className="w-0 h-0 border-l-[132px] border-r-[132px] border-t-[80px] border-l-transparent border-r-transparent border-t-[var(--paper-card)]" />
+                            {/* Skeleton invoice lines */}
+                            <div className="space-y-2.5 mb-6">
+                                <div className="h-2 w-24 bg-[#3E2723]/8 rounded-full" />
+                                <div className="h-1.5 w-full bg-[#3E2723]/5 rounded-full" />
+                                <div className="h-1.5 w-4/5 bg-[#3E2723]/5 rounded-full" />
+                                <div className="h-1.5 w-11/12 bg-[#3E2723]/5 rounded-full" />
+                            </div>
+
+                            <div className="h-[1px] w-full bg-[#3E2723]/8 mb-5" />
+
+                            <div className="space-y-2">
+                                <div className="h-1.5 w-1/3 bg-[#3E2723]/5 rounded-full" />
+                                <div className="h-1.5 w-1/2 bg-[#3E2723]/5 rounded-full" />
+                            </div>
+
+                            {/* Amount placeholder */}
+                            <div className="flex justify-end mt-5">
+                                <div className="h-3 w-20 bg-[#B8860B]/15 rounded-full" />
                             </div>
                         </div>
                     </div>
-                </div>
 
-                {/* Wax Seal */}
-                <div className={`absolute transition-all ${
-                    phase === 'seal' || phase === 'glow' || phase === 'done'
-                        ? 'opacity-100 scale-100'
-                        : 'opacity-0 scale-[2.5]'
-                } ${phase === 'seal' ? 'duration-500' : 'duration-300'}`}
-                    style={{ top: '38%' }}>
-                    <div className={`relative ${phase === 'glow' || phase === 'done' ? 'animate-[sealGlow_1.5s_ease-in-out]' : ''}`}>
-                        {/* Wax blob shape */}
-                        <div className="w-28 h-28 rounded-full bg-gradient-to-br from-[#8B2020] via-[#C62828] to-[#7B1818] shadow-[0_4px_20px_rgba(198,40,40,0.5)] flex items-center justify-center relative">
-                            {/* Wax drip edges */}
-                            <div className="absolute -top-1 -left-2 w-6 h-6 rounded-full bg-[#9B2222]" />
-                            <div className="absolute -top-1 -right-3 w-5 h-5 rounded-full bg-[#8B1E1E]" />
-                            <div className="absolute -bottom-2 -left-1 w-4 h-4 rounded-full bg-[#A52525]" />
-                            <div className="absolute -bottom-1 -right-2 w-5 h-5 rounded-full bg-[#952020]" />
-                            <div className="absolute top-1 -right-1 w-3 h-3 rounded-full bg-[#8B1A1A]" />
-                            <div className="absolute -bottom-2 left-4 w-3 h-3 rounded-full bg-[#A02222]" />
+                    {/* Wax seal — positioned overlapping the bottom edge */}
+                    <div className="absolute -bottom-10 left-1/2 -translate-x-1/2">
+                        <div className={`transition-all ${
+                            past('stamp')
+                                ? 'opacity-100 scale-100 duration-300'
+                                : 'opacity-0 scale-[3] duration-0'
+                        } ${phase === 'stamp' ? 'ease-[cubic-bezier(0.22,1.8,0.36,1)]' : 'ease-out'}`}>
 
-                            {/* Inner ring */}
-                            <div className="w-22 h-22 rounded-full border-2 border-[#D4A0A0]/30 flex items-center justify-center">
-                                {/* Seal content */}
-                                <div className="text-center select-none">
-                                    <div className="text-[#F5D0D0]/90 text-[7px] font-bold uppercase tracking-[0.15em] leading-tight font-serif">
-                                        Registered
-                                    </div>
-                                    <div className="text-[#F5D0D0]/70 text-[5px] tracking-wider my-0.5">&mdash;&mdash;&mdash;</div>
-                                    <div className="text-[#FFD0D0] text-xs font-bold font-serif">&amp;</div>
-                                    <div className="text-[#F5D0D0]/70 text-[5px] tracking-wider my-0.5">&mdash;&mdash;&mdash;</div>
-                                    <div className="text-[#F5D0D0]/90 text-[7px] font-bold uppercase tracking-[0.15em] leading-tight font-serif">
-                                        Immutable
+                            {/* Impact flash */}
+                            <div className={`absolute inset-0 -m-4 rounded-full transition-opacity duration-500 ${
+                                phase === 'stamp' ? 'opacity-100' : 'opacity-0'
+                            }`} style={{ boxShadow: '0 0 40px 10px rgba(139, 32, 32, 0.3)' }} />
+
+                            {/* Seal body */}
+                            <div className={`relative w-20 h-20 rounded-full transition-all duration-1000 ${
+                                past('imprint') ? 'shadow-[0_2px_8px_rgba(0,0,0,0.2)]' : 'shadow-[0_8px_30px_rgba(139,32,32,0.4)]'
+                            }`}>
+                                {/* Wax base with subtle irregularity */}
+                                <svg viewBox="0 0 80 80" className="absolute inset-0 w-full h-full">
+                                    <defs>
+                                        <radialGradient id="waxGrad" cx="40%" cy="35%" r="60%">
+                                            <stop offset="0%" stopColor="#C62828" />
+                                            <stop offset="50%" stopColor="#A52222" />
+                                            <stop offset="100%" stopColor="#7B1818" />
+                                        </radialGradient>
+                                    </defs>
+                                    <path d="M40 2 C52 1, 65 8, 73 18 C80 27, 79 42, 77 52 C75 62, 65 73, 55 77 C45 81, 30 79, 22 73 C14 67, 5 57, 3 46 C1 35, 4 22, 12 13 C20 4, 30 3, 40 2Z"
+                                        fill="url(#waxGrad)" />
+                                </svg>
+
+                                {/* Seal emboss content */}
+                                <div className={`absolute inset-0 flex items-center justify-center transition-opacity duration-700 ${
+                                    past('imprint') ? 'opacity-100' : 'opacity-0'
+                                }`}>
+                                    <div className="text-center select-none" style={{ textShadow: '0 1px 1px rgba(0,0,0,0.2)' }}>
+                                        <div className="text-[#F5CDCD]/80 text-[6px] font-bold uppercase tracking-[0.2em] font-serif leading-none">
+                                            Sealed
+                                        </div>
+                                        <div className="text-[#F5CDCD]/50 text-[5px] tracking-[0.15em] my-[3px]">&#x2022; &#x2022; &#x2022;</div>
+                                        <div className="text-[#FFD4D4]/90 text-sm font-serif font-bold leading-none" style={{ fontVariant: 'small-caps' }}>
+                                            BB
+                                        </div>
+                                        <div className="text-[#F5CDCD]/50 text-[5px] tracking-[0.15em] my-[3px]">&#x2022; &#x2022; &#x2022;</div>
+                                        <div className="text-[#F5CDCD]/80 text-[6px] font-bold uppercase tracking-[0.2em] font-serif leading-none">
+                                            On-Chain
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -123,24 +123,23 @@ export function SealAnimation({ onComplete }: SealAnimationProps): React.JSX.Ele
                     </div>
                 </div>
 
-                {/* Status text */}
-                <div className={`absolute bottom-0 text-center transition-all duration-700 ${
-                    phase === 'glow' || phase === 'done' ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
+                {/* Text below */}
+                <div className={`text-center mt-4 transition-all duration-700 ${
+                    past('reveal') ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'
                 }`}>
-                    <p className="text-white text-lg font-serif font-bold tracking-wide">Invoice Sealed</p>
-                    <p className="text-white/60 text-sm mt-1">Permanently recorded on Bitcoin L1</p>
+                    <p className="text-[#FFFEF7] text-lg font-serif tracking-wide">
+                        Invoice Sealed
+                    </p>
+                    <p className="text-[#FFFEF7]/40 text-xs mt-1.5 tracking-wider uppercase">
+                        Recorded on Bitcoin L1
+                    </p>
                 </div>
             </div>
 
             <style>{`
-                @keyframes fadeOverlay {
+                @keyframes sealFadeIn {
                     from { opacity: 0; }
                     to { opacity: 1; }
-                }
-                @keyframes sealGlow {
-                    0% { filter: drop-shadow(0 0 0px rgba(198, 40, 40, 0)); }
-                    50% { filter: drop-shadow(0 0 20px rgba(198, 40, 40, 0.6)); }
-                    100% { filter: drop-shadow(0 0 8px rgba(198, 40, 40, 0.2)); }
                 }
             `}</style>
         </div>
