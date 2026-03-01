@@ -6,6 +6,8 @@ Blockchain.contract = (): BlockBillContract => {
     return new BlockBillContract();
 };
 
+export * from '@btc-vision/btc-runtime/runtime/exports';
+
 export function abort(message: string, fileName: string, line: u32, column: u32): void {
     revertOnError(message, fileName, line, column);
 }
