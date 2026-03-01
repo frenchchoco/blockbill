@@ -1,76 +1,125 @@
-import { useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import QRCode from 'qrcode';
 import { PaperCard } from '../components/common/PaperCard';
 import { StampBadge } from '../components/common/StampBadge';
 import { InvoiceStatus } from '../types/invoice';
 import type { InvoiceData, LineItem } from '../types/invoice';
-
-const MOCK_INVOICE: InvoiceData = {
-    id: 1n,
-    creator: 'tb1q...creator',
-    token: 'tb1q...token',
-    totalAmount: 100000000n,
-    recipient: 'tb1q...recipient',
-    memo: 'Web development services - March 2026',
-    deadline: 0n,
-    taxBps: 2000,
-    status: InvoiceStatus.Paid,
-    paidBy: 'tb1q...payer',
-    paidAtBlock: 12400n,
-    createdAtBlock: 12345n,
-    btcTxHash: 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2',
-    lineItemCount: 2,
-};
-
-const MOCK_LINE_ITEMS: readonly LineItem[] = [
-    { description: 'Frontend Development', amount: 60000000n },
-    { description: 'Backend API', amount: 40000000n },
-];
-
-function formatAmount(amount: bigint): string {
-    const whole = amount / 100000000n;
-    const frac = amount % 100000000n;
-    const fracStr = frac.toString().padStart(8, '0').replace(/0+$/, '');
-    if (fracStr.length === 0) return whole.toString();
-    return `${whole.toString()}.${fracStr}`;
-}
-
-function formatAddress(addr: string): string {
-    if (!addr || addr.length <= 16) return addr || '--';
-    return `${addr.slice(0, 8)}...${addr.slice(-8)}`;
-}
+import { useNetwork } from '../hooks/useNetwork';
+import { contractService } from '../services/ContractService';
+import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
 
 export function Receipt(): React.JSX.Element {
     const { id } = useParams<{ id: string }>();
+    const { network } = useNetwork();
+    const [invoice, setInvoice] = useState<InvoiceData | null>(null);
+    const [lineItems, setLineItems] = useState<readonly LineItem[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [qrDataUrl, setQrDataUrl] = useState('');
 
-    // For now, use mock data regardless of the ID
-    const invoice = MOCK_INVOICE;
-    const lineItems = MOCK_LINE_ITEMS;
+    useEffect(() => {
+        if (!id) return;
+        setLoading(true);
 
-    const hasLineItems = lineItems.length > 0;
-    const hasTax = invoice.taxBps > 0;
-    const hasMemo = invoice.memo.length > 0;
-    const hasBtcTx = invoice.btcTxHash.length > 0;
+        const fetchInvoice = async (): Promise<void> => {
+            try {
+                const contract = contractService.getBlockBillContract(network);
+                const result = await contract.getInvoice(BigInt(id));
+                if (!result?.properties) { setError('Invoice not found'); return; }
+
+                const p = result.properties;
+                const inv: InvoiceData = {
+                    id: BigInt(id),
+                    creator: p.creator?.toString() ?? '',
+                    token: p.token?.toString() ?? '',
+                    totalAmount: p.totalAmount ?? 0n,
+                    recipient: p.recipient?.toString() ?? '',
+                    memo: p.memo ?? '',
+                    deadline: p.deadline ?? 0n,
+                    taxBps: p.taxBps ?? 0,
+                    status: (p.status ?? 0) as InvoiceStatus,
+                    paidBy: p.paidBy?.toString() ?? '',
+                    paidAtBlock: p.paidAtBlock ?? 0n,
+                    createdAtBlock: p.createdAtBlock ?? 0n,
+                    btcTxHash: p.btcTxHash ?? '',
+                    lineItemCount: p.lineItemCount ?? 0,
+                };
+                setInvoice(inv);
+
+                if (inv.lineItemCount > 0) {
+                    try {
+                        const liResult = await contract.getLineItems(BigInt(id));
+                        if (liResult?.properties) {
+                            const items: LineItem[] = [];
+                            const descs = Array.isArray(liResult.properties.descriptions) ? liResult.properties.descriptions : [liResult.properties.descriptions];
+                            const amounts = Array.isArray(liResult.properties.amounts) ? liResult.properties.amounts : [liResult.properties.amounts];
+                            for (let i = 0; i < inv.lineItemCount; i++) {
+                                items.push({ description: descs[i]?.toString() ?? `Item ${i + 1}`, amount: amounts[i] ?? 0n });
+                            }
+                            setLineItems(items);
+                        }
+                    } catch { /* line items non-critical */ }
+                }
+            } catch (err: unknown) {
+                setError(err instanceof Error ? err.message : 'Failed to load invoice');
+            } finally {
+                setLoading(false);
+            }
+        };
+        void fetchInvoice();
+    }, [id, network]);
+
+    useEffect(() => {
+        const url = window.location.href.replace('/receipt', '');
+        QRCode.toDataURL(url, { width: 140, margin: 2, color: { dark: '#2E7D32', light: '#FFFEF7' } })
+            .then(setQrDataUrl).catch(() => {});
+    }, [id]);
 
     const handlePrint = useCallback(() => {
         window.print();
     }, []);
 
+    if (loading) {
+        return (
+            <div className="max-w-2xl mx-auto text-center py-20">
+                <div className="inline-block w-8 h-8 border-2 border-[var(--accent-gold)] border-t-transparent rounded-full animate-spin" />
+                <p className="text-[var(--ink-light)] mt-4 font-serif">Loading receipt...</p>
+            </div>
+        );
+    }
+
+    if (error || !invoice) {
+        return (
+            <div className="max-w-2xl mx-auto text-center py-20">
+                <p className="text-[var(--stamp-red)] text-lg font-serif">{error || 'Invoice not found'}</p>
+                <Link to="/dashboard" className="text-[var(--accent-gold)] hover:underline mt-4 inline-block">Back to Dashboard</Link>
+            </div>
+        );
+    }
+
+    if (invoice.status !== InvoiceStatus.Paid) {
+        return (
+            <div className="max-w-2xl mx-auto text-center py-20">
+                <StampBadge status={invoice.status} size="lg" />
+                <p className="text-[var(--ink-medium)] mt-4 font-serif text-lg">
+                    No receipt available &mdash; this invoice has not been paid yet.
+                </p>
+                <Link to={`/invoice/${id}`} className="text-[var(--accent-gold)] hover:underline mt-4 inline-block">View Invoice</Link>
+            </div>
+        );
+    }
+
+    const token = findToken(invoice.token, network);
+    const decimals = token?.decimals ?? 8;
+
     return (
         <>
-            {/* Print-friendly styles */}
             <style>{`
                 @media print {
-                    header, footer, .no-print {
-                        display: none !important;
-                    }
-                    body {
-                        background: white !important;
-                    }
-                    .print-card {
-                        box-shadow: none !important;
-                        border: 1px solid #ccc !important;
-                    }
+                    header, footer, .no-print { display: none !important; }
+                    body { background: white !important; }
+                    .print-card { box-shadow: none !important; border: 1px solid #ccc !important; }
                 }
             `}</style>
 
@@ -79,161 +128,112 @@ export function Receipt(): React.JSX.Element {
                     {/* Receipt Header */}
                     <div className="flex items-start justify-between mb-8 pb-6 border-b border-[var(--border-paper)]">
                         <div>
-                            <h1 className="text-4xl font-serif text-[var(--ink-dark)] tracking-wide">
-                                RECEIPT
-                            </h1>
-                            <p className="text-sm text-[var(--ink-light)] mt-1">
-                                Invoice #{id ?? '?'}
-                            </p>
+                            <h1 className="text-4xl font-serif text-[var(--ink-dark)] tracking-wide">RECEIPT</h1>
+                            <p className="text-sm text-[var(--ink-light)] mt-1">Invoice #{id ?? '?'}</p>
+                            <p className="text-xs text-[var(--ink-light)]">Block #{invoice.createdAtBlock.toString()}</p>
                         </div>
-                        <StampBadge status={InvoiceStatus.Paid} size="lg" />
+                        <div className="flex flex-col items-end gap-3">
+                            <StampBadge status={InvoiceStatus.Paid} size="lg" />
+                            {qrDataUrl && (
+                                <img src={qrDataUrl} alt="Invoice QR" className="w-20 h-20 rounded border border-[var(--stamp-green)]/30" />
+                            )}
+                        </div>
                     </div>
 
                     {/* Parties */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
                         <div>
-                            <p className="text-xs uppercase tracking-wider text-[var(--ink-light)] font-medium mb-1">
-                                From
-                            </p>
-                            <p className="font-mono text-sm text-[var(--ink-dark)] break-all">
-                                {invoice.creator}
-                            </p>
+                            <p className="text-xs uppercase tracking-wider text-[var(--ink-light)] font-medium mb-1">From</p>
+                            <p className="font-mono text-sm text-[var(--ink-dark)] break-all">{formatAddress(invoice.creator)}</p>
                         </div>
                         <div>
-                            <p className="text-xs uppercase tracking-wider text-[var(--ink-light)] font-medium mb-1">
-                                To
-                            </p>
+                            <p className="text-xs uppercase tracking-wider text-[var(--ink-light)] font-medium mb-1">To</p>
                             <p className="font-mono text-sm text-[var(--ink-dark)] break-all">
-                                {invoice.recipient || 'Open Invoice'}
+                                {invoice.recipient ? formatAddress(invoice.recipient) : 'Open Invoice'}
                             </p>
                         </div>
                     </div>
 
-                    {/* Invoice Details */}
+                    {/* Details */}
                     <div className="mb-8 space-y-3">
                         <h2 className="text-lg font-serif text-[var(--ink-dark)] mb-3">Details</h2>
                         <div className="grid grid-cols-2 gap-y-3 text-sm">
                             <span className="text-[var(--ink-light)]">Token</span>
-                            <span className="font-mono text-[var(--ink-dark)] text-right break-all">
-                                {formatAddress(invoice.token)}
+                            <span className="font-mono text-[var(--ink-dark)] text-right">
+                                {token ? `${token.icon} ${token.symbol}` : formatAddress(invoice.token)}
                             </span>
-
                             <span className="text-[var(--ink-light)]">Amount</span>
-                            <span className="font-mono text-[var(--ink-dark)] text-right font-medium">
-                                {formatAmount(invoice.totalAmount)}
+                            <span className="font-mono text-[var(--ink-dark)] text-right font-bold text-lg">
+                                {formatTokenAmount(invoice.totalAmount, decimals)}
                             </span>
-
-                            {hasTax && (
-                                <>
-                                    <span className="text-[var(--ink-light)]">Tax</span>
-                                    <span className="font-mono text-[var(--ink-dark)] text-right">
-                                        {invoice.taxBps / 100}%
-                                    </span>
-                                </>
-                            )}
+                            {invoice.taxBps > 0 && (<>
+                                <span className="text-[var(--ink-light)]">Tax</span>
+                                <span className="font-mono text-[var(--ink-dark)] text-right">{invoice.taxBps / 100}%</span>
+                            </>)}
                         </div>
                     </div>
 
                     {/* Memo */}
-                    {hasMemo && (
+                    {invoice.memo && (
                         <div className="mb-8">
                             <h2 className="text-lg font-serif text-[var(--ink-dark)] mb-2">Memo</h2>
                             <div className="p-4 bg-[var(--paper-bg)] border border-[var(--border-paper)] rounded-lg">
-                                <p className="text-sm text-[var(--ink-medium)] italic leading-relaxed">
-                                    {invoice.memo}
-                                </p>
+                                <p className="text-sm text-[var(--ink-medium)] italic leading-relaxed">{invoice.memo}</p>
                             </div>
                         </div>
                     )}
 
                     {/* Line Items */}
-                    {hasLineItems && (
+                    {lineItems.length > 0 && (
                         <div className="mb-8">
                             <h2 className="text-lg font-serif text-[var(--ink-dark)] mb-3">Line Items</h2>
                             <div className="border border-[var(--border-paper)] rounded-lg overflow-hidden">
                                 <table className="w-full text-sm">
-                                    <thead>
-                                        <tr className="bg-[var(--paper-card-dark)]">
-                                            <th className="text-left px-4 py-2.5 font-serif font-medium text-[var(--ink-dark)] w-12">
-                                                #
-                                            </th>
-                                            <th className="text-left px-4 py-2.5 font-serif font-medium text-[var(--ink-dark)]">
-                                                Description
-                                            </th>
-                                            <th className="text-right px-4 py-2.5 font-serif font-medium text-[var(--ink-dark)]">
-                                                Amount
-                                            </th>
+                                    <thead><tr className="bg-[var(--paper-card-dark)]">
+                                        <th className="text-left px-4 py-2.5 font-serif font-medium text-[var(--ink-dark)] w-12">#</th>
+                                        <th className="text-left px-4 py-2.5 font-serif font-medium text-[var(--ink-dark)]">Description</th>
+                                        <th className="text-right px-4 py-2.5 font-serif font-medium text-[var(--ink-dark)]">Amount</th>
+                                    </tr></thead>
+                                    <tbody>{lineItems.map((item, index) => (
+                                        <tr key={index} className="border-t border-[var(--border-paper)]">
+                                            <td className="px-4 py-2.5 text-[var(--ink-light)]">{index + 1}</td>
+                                            <td className="px-4 py-2.5 text-[var(--ink-dark)]">{item.description}</td>
+                                            <td className="px-4 py-2.5 text-right font-mono text-[var(--ink-dark)]">{formatTokenAmount(item.amount, decimals)}</td>
                                         </tr>
-                                    </thead>
-                                    <tbody>
-                                        {lineItems.map((item, index) => (
-                                            <tr
-                                                key={index}
-                                                className="border-t border-[var(--border-paper)]"
-                                            >
-                                                <td className="px-4 py-2.5 text-[var(--ink-light)]">
-                                                    {index + 1}
-                                                </td>
-                                                <td className="px-4 py-2.5 text-[var(--ink-dark)]">
-                                                    {item.description}
-                                                </td>
-                                                <td className="px-4 py-2.5 text-right font-mono text-[var(--ink-dark)]">
-                                                    {formatAmount(item.amount)}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
+                                    ))}</tbody>
                                 </table>
                             </div>
                         </div>
                     )}
 
                     {/* Payment Proof */}
-                    <div className="mb-8 p-4 bg-[var(--paper-bg)] border border-[var(--stamp-green)] rounded-lg">
-                        <h2 className="text-lg font-serif text-[var(--stamp-green)] mb-3">
-                            Payment Proof
-                        </h2>
+                    <div className="mb-8 p-5 bg-[var(--paper-bg)] border border-[var(--stamp-green)] rounded-lg">
+                        <h2 className="text-lg font-serif text-[var(--stamp-green)] mb-3">Payment Proof</h2>
                         <div className="grid grid-cols-2 gap-y-3 text-sm">
                             <span className="text-[var(--ink-light)]">Paid by</span>
-                            <span className="font-mono text-[var(--ink-dark)] text-right break-all">
-                                {formatAddress(invoice.paidBy)}
-                            </span>
-
+                            <span className="font-mono text-[var(--ink-dark)] text-right break-all">{formatAddress(invoice.paidBy)}</span>
                             <span className="text-[var(--ink-light)]">Paid at</span>
-                            <span className="font-mono text-[var(--ink-dark)] text-right">
-                                Block #{invoice.paidAtBlock.toString()}
-                            </span>
-
-                            {hasBtcTx && (
-                                <>
-                                    <span className="text-[var(--ink-light)]">BTC Tx Hash</span>
-                                    <span className="font-mono text-[var(--ink-dark)] text-right break-all">
-                                        {formatAddress(invoice.btcTxHash)}
-                                    </span>
-                                </>
-                            )}
+                            <span className="font-mono text-[var(--ink-dark)] text-right">Block #{invoice.paidAtBlock.toString()}</span>
+                            {invoice.btcTxHash && (<>
+                                <span className="text-[var(--ink-light)]">BTC Tx</span>
+                                <span className="font-mono text-[var(--ink-dark)] text-right break-all">{formatAddress(invoice.btcTxHash)}</span>
+                            </>)}
                         </div>
-
-                        <div className="mt-4 pt-3 border-t border-[var(--stamp-green)] border-opacity-30">
+                        <div className="mt-4 pt-3 border-t border-[var(--stamp-green)]/30">
                             <p className="text-xs text-[var(--stamp-green)] italic text-center">
-                                This payment is permanently recorded on Bitcoin L1
+                                Permanently recorded on Bitcoin L1
                             </p>
                         </div>
                     </div>
 
                     {/* Actions */}
                     <div className="flex flex-col sm:flex-row gap-3 pt-6 border-t border-[var(--border-paper)] no-print">
-                        <button
-                            type="button"
-                            onClick={handlePrint}
-                            className="flex-1 inline-flex items-center justify-center px-6 py-3 bg-[var(--accent-gold)] text-white font-medium rounded-lg hover:bg-[var(--accent-gold-light)] transition-colors shadow-md"
-                        >
+                        <button type="button" onClick={handlePrint}
+                            className="flex-1 inline-flex items-center justify-center px-6 py-3 bg-[var(--accent-gold)] text-white font-medium rounded-lg hover:bg-[var(--accent-gold-light)] transition-colors shadow-md">
                             Print Receipt
                         </button>
-                        <Link
-                            to={`/invoice/${id ?? ''}`}
-                            className="flex-1 inline-flex items-center justify-center px-6 py-3 border-2 border-[var(--border-paper)] text-[var(--ink-medium)] font-medium rounded-lg hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] transition-colors text-center"
-                        >
+                        <Link to={`/invoice/${id ?? ''}`}
+                            className="flex-1 inline-flex items-center justify-center px-6 py-3 border-2 border-[var(--border-paper)] text-[var(--ink-medium)] font-medium rounded-lg hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] transition-colors text-center">
                             Back to Invoice
                         </Link>
                     </div>

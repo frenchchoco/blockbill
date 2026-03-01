@@ -1,325 +1,262 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useWalletConnect } from '@btc-vision/walletconnect';
+import { Address } from '@btc-vision/transaction';
+import toast from 'react-hot-toast';
 import { PaperCard } from '../components/common/PaperCard';
 import { StampBadge } from '../components/common/StampBadge';
 import { InvoiceStatus } from '../types/invoice';
 import type { InvoiceData } from '../types/invoice';
+import { useNetwork } from '../hooks/useNetwork';
+import { contractService } from '../services/ContractService';
+import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
 
-// When contract is deployed, the payment flow will be:
-// 1. const approveSim = await tokenContract.approve(blockbillAddress, totalAmount);
-//    await approveSim.sendTransaction({ signer: null, mldsaSigner: null, refundTo, maximumAllowedSatToSpend: 10000n, network });
-// 2. const paySim = await blockbillContract.payInvoice(invoiceId);
-//    await paySim.sendTransaction({ signer: null, mldsaSigner: null, refundTo, maximumAllowedSatToSpend: 10000n, network });
+const FEE_BPS = 50n;
 
-const MOCK_INVOICE: InvoiceData = {
-    id: 1n,
-    creator: 'tb1q...creator',
-    token: 'tb1q...token',
-    totalAmount: 100000000n,
-    recipient: '',
-    memo: 'Web development services - March 2026',
-    deadline: 0n,
-    taxBps: 2000,
-    status: InvoiceStatus.Pending,
-    paidBy: '',
-    paidAtBlock: 0n,
-    createdAtBlock: 12345n,
-    btcTxHash: '',
-    lineItemCount: 2,
-};
-
-const FEE_BPS = 50; // 0.5%
-
-type FeeRate = 'economy' | 'normal' | 'fast';
-
-interface FeeOption {
-    readonly label: string;
-    readonly rate: number;
-    readonly unit: string;
-}
-
-const FEE_OPTIONS: Record<FeeRate, FeeOption> = {
-    economy: { label: 'Economy', rate: 1, unit: 'sat/vB' },
-    normal: { label: 'Normal', rate: 5, unit: 'sat/vB' },
-    fast: { label: 'Fast', rate: 10, unit: 'sat/vB' },
-};
-
-type StepStatus = 'waiting' | 'processing' | 'done';
-
-function formatAmount(amount: bigint): string {
-    const whole = amount / 100000000n;
-    const frac = amount % 100000000n;
-    const fracStr = frac.toString().padStart(8, '0').replace(/0+$/, '');
-    if (fracStr.length === 0) return whole.toString();
-    return `${whole.toString()}.${fracStr}`;
-}
-
-function formatAddress(addr: string): string {
-    if (!addr || addr.length <= 16) return addr || '--';
-    return `${addr.slice(0, 8)}...${addr.slice(-8)}`;
-}
+type StepStatus = 'waiting' | 'processing' | 'done' | 'error';
 
 export function PayInvoice(): React.JSX.Element {
     const { id } = useParams<{ id: string }>();
     const { walletAddress, openConnectModal } = useWalletConnect();
+    const { network } = useNetwork();
 
-    const [feeRate, setFeeRate] = useState<FeeRate>('normal');
+    const [invoice, setInvoice] = useState<InvoiceData | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
     const [approveStatus, setApproveStatus] = useState<StepStatus>('waiting');
     const [payStatus, setPayStatus] = useState<StepStatus>('waiting');
     const [txSubmitted, setTxSubmitted] = useState(false);
 
-    // For now, use mock data regardless of the ID
-    const invoice = MOCK_INVOICE;
+    useEffect(() => {
+        if (!id) return;
+        setLoading(true);
+        const fetchInvoice = async (): Promise<void> => {
+            try {
+                const contract = contractService.getBlockBillContract(network);
+                const result = await contract.getInvoice(BigInt(id));
+                if (!result?.properties) { setError('Invoice not found'); return; }
+                const p = result.properties;
+                setInvoice({
+                    id: BigInt(id),
+                    creator: p.creator?.toString() ?? '',
+                    token: p.token?.toString() ?? '',
+                    totalAmount: p.totalAmount ?? 0n,
+                    recipient: p.recipient?.toString() ?? '',
+                    memo: p.memo ?? '',
+                    deadline: p.deadline ?? 0n,
+                    taxBps: p.taxBps ?? 0,
+                    status: (p.status ?? 0) as InvoiceStatus,
+                    paidBy: p.paidBy?.toString() ?? '',
+                    paidAtBlock: p.paidAtBlock ?? 0n,
+                    createdAtBlock: p.createdAtBlock ?? 0n,
+                    btcTxHash: p.btcTxHash ?? '',
+                    lineItemCount: p.lineItemCount ?? 0,
+                });
+            } catch (err: unknown) {
+                setError(err instanceof Error ? err.message : 'Failed to load invoice');
+            } finally {
+                setLoading(false);
+            }
+        };
+        void fetchInvoice();
+    }, [id, network]);
 
-    const feeAmount = (invoice.totalAmount * BigInt(FEE_BPS)) / 10000n;
-    const totalWithFee = invoice.totalAmount + feeAmount;
-
-    const handleApprove = useCallback(() => {
+    const handleApprove = useCallback(async () => {
+        if (!walletAddress || !invoice) return;
         setApproveStatus('processing');
-        console.log('Approving token spend...', {
-            token: invoice.token,
-            amount: totalWithFee.toString(),
-            feeRate: FEE_OPTIONS[feeRate].rate,
-        });
 
-        // Simulate async approval
-        setTimeout(() => {
+        try {
+            const tokenContract = contractService.getTokenContract(invoice.token, network, walletAddress);
+            const blockbillContract = contractService.getBlockBillContract(network);
+            const rawAddr = blockbillContract.address;
+            if (!rawAddr) throw new Error('BlockBill contract address not found');
+            const spenderAddress = typeof rawAddr === 'string' ? Address.fromString(rawAddr) : rawAddr;
+
+            const sim = await tokenContract.increaseAllowance(spenderAddress, invoice.totalAmount);
+            await sim.sendTransaction({
+                signer: null, mldsaSigner: null,
+                refundTo: walletAddress, maximumAllowedSatToSpend: 50000n, network,
+            });
+
             setApproveStatus('done');
-            console.log('Token approved.');
-        }, 1500);
-    }, [invoice.token, totalWithFee, feeRate]);
+            toast.success('Token approved!');
+        } catch (err: unknown) {
+            setApproveStatus('error');
+            toast.error(err instanceof Error ? err.message : 'Approval failed');
+        }
+    }, [walletAddress, invoice, network]);
 
-    const handlePay = useCallback(() => {
+    const handlePay = useCallback(async () => {
+        if (!walletAddress || !id) return;
         setPayStatus('processing');
-        console.log('Paying invoice...', {
-            invoiceId: id,
-            feeRate: FEE_OPTIONS[feeRate].rate,
-        });
 
-        // Simulate async payment
-        setTimeout(() => {
+        try {
+            const contract = contractService.getBlockBillContract(network, walletAddress);
+            const sim = await contract.payInvoice(BigInt(id));
+            await sim.sendTransaction({
+                signer: null, mldsaSigner: null,
+                refundTo: walletAddress, maximumAllowedSatToSpend: 50000n, network,
+            });
+
             setPayStatus('done');
             setTxSubmitted(true);
-            console.log('Transaction submitted.');
-        }, 1500);
-    }, [id, feeRate]);
-
-    const getStepIcon = (status: StepStatus): string => {
-        switch (status) {
-            case 'waiting': return '';
-            case 'processing': return '...';
-            case 'done': return 'Done';
+            toast.success('Payment submitted!');
+        } catch (err: unknown) {
+            setPayStatus('error');
+            toast.error(err instanceof Error ? err.message : 'Payment failed');
         }
-    };
+    }, [walletAddress, id, network]);
+
+    if (loading) {
+        return (
+            <div className="max-w-2xl mx-auto text-center py-20">
+                <div className="inline-block w-8 h-8 border-2 border-[var(--accent-gold)] border-t-transparent rounded-full animate-spin" />
+                <p className="text-[var(--ink-light)] mt-4 font-serif">Loading invoice...</p>
+            </div>
+        );
+    }
+
+    if (error || !invoice) {
+        return (
+            <div className="max-w-2xl mx-auto text-center py-20">
+                <p className="text-[var(--stamp-red)] text-lg font-serif">{error || 'Invoice not found'}</p>
+                <Link to="/dashboard" className="text-[var(--accent-gold)] hover:underline mt-4 inline-block">Back to Dashboard</Link>
+            </div>
+        );
+    }
+
+    if (invoice.status !== InvoiceStatus.Pending) {
+        return (
+            <div className="max-w-2xl mx-auto text-center py-20">
+                <StampBadge status={invoice.status} size="lg" />
+                <p className="text-[var(--ink-medium)] mt-4 font-serif text-lg">
+                    This invoice is {invoice.status === InvoiceStatus.Paid ? 'already paid' : 'not payable'}.
+                </p>
+                <Link to={`/invoice/${id}`} className="text-[var(--accent-gold)] hover:underline mt-4 inline-block">View Invoice</Link>
+            </div>
+        );
+    }
+
+    const token = findToken(invoice.token, network);
+    const decimals = token?.decimals ?? 8;
+    const feeAmount = (invoice.totalAmount * FEE_BPS) / 10000n;
+    const creatorReceives = invoice.totalAmount - feeAmount;
 
     return (
         <div className="max-w-2xl mx-auto">
             <PaperCard className="relative">
-                {/* Invoice Summary */}
                 <div className="flex items-start justify-between mb-8 pb-6 border-b border-[var(--border-paper)]">
                     <div>
-                        <h1 className="text-3xl font-serif text-[var(--ink-dark)]">
-                            Pay Invoice #{id ?? '?'}
-                        </h1>
-                        <p className="text-sm text-[var(--ink-light)] mt-1">
-                            From: {formatAddress(invoice.creator)}
-                        </p>
+                        <h1 className="text-3xl font-serif text-[var(--ink-dark)]">Pay Invoice #{id}</h1>
+                        <p className="text-sm text-[var(--ink-light)] mt-1">From: {formatAddress(invoice.creator)}</p>
                     </div>
                     <StampBadge status={invoice.status} size="lg" />
                 </div>
 
                 {/* Amount Summary */}
-                <div className="mb-8 space-y-3">
-                    <h2 className="text-lg font-serif text-[var(--ink-dark)] mb-3">Payment Summary</h2>
-                    <div className="grid grid-cols-2 gap-y-3 text-sm">
-                        <span className="text-[var(--ink-light)]">Amount Due</span>
-                        <span className="font-mono text-[var(--ink-dark)] text-right font-medium">
-                            {formatAmount(invoice.totalAmount)}
-                        </span>
-
-                        <span className="text-[var(--ink-light)]">Token</span>
-                        <span className="font-mono text-[var(--ink-dark)] text-right break-all">
-                            {formatAddress(invoice.token)}
-                        </span>
-
-                        <span className="text-[var(--ink-light)]">Fee (0.5%)</span>
-                        <span className="font-mono text-[var(--ink-dark)] text-right">
-                            {formatAmount(feeAmount)}
-                        </span>
-
-                        <span className="text-[var(--ink-dark)] font-medium border-t border-[var(--border-paper)] pt-2">
-                            Total
-                        </span>
-                        <span className="font-mono text-[var(--ink-dark)] text-right font-bold border-t border-[var(--border-paper)] pt-2">
-                            {formatAmount(totalWithFee)}
-                        </span>
+                <div className="mb-8 p-5 bg-[var(--paper-bg)] rounded-lg border border-[var(--border-paper)]">
+                    <div className="text-center mb-4">
+                        <p className="text-xs uppercase tracking-wider text-[var(--ink-light)] mb-1">Amount Due</p>
+                        <p className="text-4xl font-mono font-bold text-[var(--ink-dark)]">
+                            {formatTokenAmount(invoice.totalAmount, decimals)}
+                        </p>
+                        <p className="text-sm text-[var(--ink-medium)] mt-1">
+                            {token ? `${token.icon} ${token.symbol}` : formatAddress(invoice.token)}
+                        </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-y-2 text-xs text-[var(--ink-light)] border-t border-[var(--border-paper)] pt-3">
+                        <span>Platform fee (0.5%)</span>
+                        <span className="text-right font-mono">{formatTokenAmount(feeAmount, decimals)}</span>
+                        <span>Creator receives</span>
+                        <span className="text-right font-mono">{formatTokenAmount(creatorReceives, decimals)}</span>
                     </div>
                 </div>
 
-                {/* Wallet Check */}
                 {!walletAddress ? (
                     <div className="text-center py-8">
-                        <p className="text-[var(--ink-medium)] mb-4">
-                            Connect your wallet to pay this invoice.
-                        </p>
-                        <button
-                            type="button"
-                            onClick={openConnectModal}
-                            className="px-8 py-3 bg-[var(--accent-gold)] text-white font-medium rounded-lg hover:bg-[var(--accent-gold-light)] transition-colors shadow-md"
-                        >
+                        <p className="text-[var(--ink-medium)] mb-4">Connect your wallet to pay this invoice.</p>
+                        <button type="button" onClick={openConnectModal}
+                            className="px-8 py-3 bg-[var(--accent-gold)] text-white font-medium rounded-lg hover:bg-[var(--accent-gold-light)] transition-colors shadow-md">
                             Connect Wallet
                         </button>
                     </div>
-                ) : (
-                    <>
-                        {/* Fee Selector */}
-                        <div className="mb-8">
-                            <h2 className="text-lg font-serif text-[var(--ink-dark)] mb-3">
-                                BTC Fee Rate
-                            </h2>
-                            <div className="grid grid-cols-3 gap-3">
-                                {(Object.keys(FEE_OPTIONS) as readonly FeeRate[]).map((key) => {
-                                    const option = FEE_OPTIONS[key];
-                                    const isActive = feeRate === key;
-                                    return (
-                                        <button
-                                            key={key}
-                                            type="button"
-                                            onClick={() => setFeeRate(key)}
-                                            disabled={txSubmitted}
-                                            className={`py-3 px-4 rounded-lg text-center transition-colors border ${
-                                                isActive
-                                                    ? 'bg-[var(--accent-gold)] text-white border-[var(--accent-gold)]'
-                                                    : 'border-[var(--border-paper)] text-[var(--ink-medium)] hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)]'
-                                            } disabled:opacity-50 disabled:cursor-not-allowed`}
-                                        >
-                                            <span className="block text-sm font-medium">
-                                                {option.label}
-                                            </span>
-                                            <span className="block text-xs mt-0.5 opacity-75">
-                                                {option.rate} {option.unit}
-                                            </span>
-                                        </button>
-                                    );
-                                })}
+                ) : !txSubmitted ? (
+                    <div className="space-y-4">
+                        <h2 className="text-lg font-serif text-[var(--ink-dark)] mb-3">Payment Steps</h2>
+
+                        {/* Step 1: Approve */}
+                        <div className={`flex items-center gap-4 p-4 rounded-lg border transition-all ${
+                            approveStatus === 'done' ? 'bg-[var(--stamp-green)]/5 border-[var(--stamp-green)]'
+                            : approveStatus === 'error' ? 'bg-[var(--stamp-red)]/5 border-[var(--stamp-red)]'
+                            : 'bg-[var(--paper-bg)] border-[var(--border-paper)]'
+                        }`}>
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
+                                approveStatus === 'done' ? 'bg-[var(--stamp-green)] text-white'
+                                : approveStatus === 'processing' ? 'bg-[var(--accent-gold)] text-white animate-pulse'
+                                : 'bg-[var(--paper-card-dark)] text-[var(--ink-medium)]'
+                            }`}>
+                                {approveStatus === 'done' ? '\u2713' : '1'}
                             </div>
+                            <div className="flex-1">
+                                <p className="text-sm font-medium text-[var(--ink-dark)]">Approve Token Spend</p>
+                                <p className="text-xs text-[var(--ink-light)]">Allow BlockBill contract to transfer tokens</p>
+                            </div>
+                            <button type="button" onClick={() => void handleApprove()}
+                                disabled={approveStatus === 'done' || approveStatus === 'processing'}
+                                className="px-5 py-2.5 bg-[var(--accent-gold)] text-white text-sm font-medium rounded-lg hover:bg-[var(--accent-gold-light)] disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95">
+                                {approveStatus === 'processing' ? 'Approving...' : approveStatus === 'done' ? 'Approved' : approveStatus === 'error' ? 'Retry' : 'Approve'}
+                            </button>
                         </div>
 
-                        {/* Payment Steps */}
-                        {!txSubmitted ? (
-                            <div className="space-y-4">
-                                <h2 className="text-lg font-serif text-[var(--ink-dark)] mb-3">
-                                    Payment Steps
-                                </h2>
-
-                                {/* Step 1: Approve */}
-                                <div className="flex items-center gap-4 p-4 bg-[var(--paper-bg)] border border-[var(--border-paper)] rounded-lg">
-                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                                        approveStatus === 'done'
-                                            ? 'bg-[var(--stamp-green)] text-white'
-                                            : 'bg-[var(--paper-card-dark)] text-[var(--ink-medium)]'
-                                    }`}>
-                                        {approveStatus === 'done' ? '\u2713' : '1'}
-                                    </div>
-                                    <div className="flex-1">
-                                        <p className="text-sm font-medium text-[var(--ink-dark)]">
-                                            Approve Token
-                                        </p>
-                                        <p className="text-xs text-[var(--ink-light)]">
-                                            Allow BlockBill to spend tokens on your behalf
-                                        </p>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        {approveStatus !== 'waiting' && (
-                                            <span className={`text-xs font-medium ${
-                                                approveStatus === 'done'
-                                                    ? 'text-[var(--stamp-green)]'
-                                                    : 'text-[var(--stamp-orange)]'
-                                            }`}>
-                                                {getStepIcon(approveStatus)}
-                                            </span>
-                                        )}
-                                        <button
-                                            type="button"
-                                            onClick={handleApprove}
-                                            disabled={approveStatus !== 'waiting'}
-                                            className="px-4 py-2 bg-[var(--accent-gold)] text-white text-sm font-medium rounded-lg hover:bg-[var(--accent-gold-light)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                        >
-                                            Approve
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Step 2: Pay */}
-                                <div className="flex items-center gap-4 p-4 bg-[var(--paper-bg)] border border-[var(--border-paper)] rounded-lg">
-                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                                        payStatus === 'done'
-                                            ? 'bg-[var(--stamp-green)] text-white'
-                                            : 'bg-[var(--paper-card-dark)] text-[var(--ink-medium)]'
-                                    }`}>
-                                        {payStatus === 'done' ? '\u2713' : '2'}
-                                    </div>
-                                    <div className="flex-1">
-                                        <p className="text-sm font-medium text-[var(--ink-dark)]">
-                                            Pay Invoice
-                                        </p>
-                                        <p className="text-xs text-[var(--ink-light)]">
-                                            Execute the payment transaction
-                                        </p>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        {payStatus !== 'waiting' && (
-                                            <span className={`text-xs font-medium ${
-                                                payStatus === 'done'
-                                                    ? 'text-[var(--stamp-green)]'
-                                                    : 'text-[var(--stamp-orange)]'
-                                            }`}>
-                                                {getStepIcon(payStatus)}
-                                            </span>
-                                        )}
-                                        <button
-                                            type="button"
-                                            onClick={handlePay}
-                                            disabled={approveStatus !== 'done' || payStatus !== 'waiting'}
-                                            className="px-4 py-2 bg-[var(--accent-gold)] text-white text-sm font-medium rounded-lg hover:bg-[var(--accent-gold-light)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                        >
-                                            Pay
-                                        </button>
-                                    </div>
-                                </div>
+                        {/* Step 2: Pay */}
+                        <div className={`flex items-center gap-4 p-4 rounded-lg border transition-all ${
+                            payStatus === 'done' ? 'bg-[var(--stamp-green)]/5 border-[var(--stamp-green)]'
+                            : payStatus === 'error' ? 'bg-[var(--stamp-red)]/5 border-[var(--stamp-red)]'
+                            : approveStatus !== 'done' ? 'opacity-50 bg-[var(--paper-bg)] border-[var(--border-paper)]'
+                            : 'bg-[var(--paper-bg)] border-[var(--border-paper)]'
+                        }`}>
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
+                                payStatus === 'done' ? 'bg-[var(--stamp-green)] text-white'
+                                : payStatus === 'processing' ? 'bg-[var(--accent-gold)] text-white animate-pulse'
+                                : 'bg-[var(--paper-card-dark)] text-[var(--ink-medium)]'
+                            }`}>
+                                {payStatus === 'done' ? '\u2713' : '2'}
                             </div>
-                        ) : (
-                            /* Transaction Result */
-                            <div className="text-center py-8 space-y-4">
-                                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-[var(--stamp-green)] text-white">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                                    </svg>
-                                </div>
-                                <h2 className="text-2xl font-serif text-[var(--stamp-green)]">
-                                    Transaction Submitted
-                                </h2>
-                                <p className="text-[var(--ink-medium)]">
-                                    Your payment has been submitted and will be confirmed on Bitcoin L1.
-                                </p>
-                                <Link
-                                    to={`/invoice/${id ?? ''}/receipt`}
-                                    className="inline-flex items-center px-6 py-3 bg-[var(--accent-gold)] text-white font-medium rounded-lg hover:bg-[var(--accent-gold-light)] transition-colors shadow-md"
-                                >
-                                    View Receipt
-                                </Link>
+                            <div className="flex-1">
+                                <p className="text-sm font-medium text-[var(--ink-dark)]">Pay Invoice</p>
+                                <p className="text-xs text-[var(--ink-light)]">Execute payment transaction on Bitcoin L1</p>
                             </div>
-                        )}
-                    </>
+                            <button type="button" onClick={() => void handlePay()}
+                                disabled={approveStatus !== 'done' || payStatus === 'done' || payStatus === 'processing'}
+                                className="px-5 py-2.5 bg-[var(--accent-gold)] text-white text-sm font-medium rounded-lg hover:bg-[var(--accent-gold-light)] disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95">
+                                {payStatus === 'processing' ? 'Paying...' : payStatus === 'done' ? 'Paid' : payStatus === 'error' ? 'Retry' : 'Pay'}
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="text-center py-10 space-y-4">
+                        <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-[var(--stamp-green)] text-white animate-[bounceIn_0.5s]">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                        </div>
+                        <h2 className="text-2xl font-serif text-[var(--stamp-green)]">Payment Submitted!</h2>
+                        <p className="text-[var(--ink-medium)]">Your payment will be confirmed on Bitcoin L1.</p>
+                        <div className="flex flex-col sm:flex-row gap-3 justify-center pt-4">
+                            <Link to={`/invoice/${id}/receipt`}
+                                className="px-6 py-3 bg-[var(--accent-gold)] text-white font-medium rounded-lg hover:bg-[var(--accent-gold-light)] transition-colors shadow-md">
+                                View Receipt
+                            </Link>
+                            <Link to={`/invoice/${id}`}
+                                className="px-6 py-3 border-2 border-[var(--border-paper)] text-[var(--ink-medium)] font-medium rounded-lg hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] transition-colors">
+                                Back to Invoice
+                            </Link>
+                        </div>
+                    </div>
                 )}
 
-                {/* Back Link */}
                 <div className="mt-8 pt-6 border-t border-[var(--border-paper)] text-center">
-                    <Link
-                        to={`/invoice/${id ?? ''}`}
-                        className="text-sm text-[var(--accent-gold)] hover:text-[var(--accent-gold-light)] transition-colors"
-                    >
+                    <Link to={`/invoice/${id ?? ''}`} className="text-sm text-[var(--accent-gold)] hover:text-[var(--accent-gold-light)] transition-colors">
                         Back to Invoice
                     </Link>
                 </div>
