@@ -1,5 +1,6 @@
 import { networks } from '@btc-vision/bitcoin';
 import type { Network } from '@btc-vision/bitcoin';
+import { networkKey } from './networks';
 
 export interface TokenInfo {
     readonly address: string;
@@ -47,14 +48,14 @@ const REGTEST_TOKENS: readonly TokenInfo[] = [
     },
 ];
 
-const TOKEN_MAP: Map<Network, readonly TokenInfo[]> = new Map([
-    [networks.opnetTestnet, TESTNET_TOKENS],
-    [networks.regtest, REGTEST_TOKENS],
-    [networks.bitcoin, []],
-]);
+const TOKEN_MAP: Record<string, readonly TokenInfo[]> = {
+    [networkKey(networks.opnetTestnet)]: TESTNET_TOKENS,
+    [networkKey(networks.regtest)]: REGTEST_TOKENS,
+    [networkKey(networks.bitcoin)]: [],
+};
 
 export function getKnownTokens(network: Network): readonly TokenInfo[] {
-    return TOKEN_MAP.get(network) ?? [];
+    return TOKEN_MAP[networkKey(network)] ?? [];
 }
 
 export function findToken(address: string, network: Network): TokenInfo | undefined {
