@@ -32,7 +32,7 @@ export function PayInvoice(): React.JSX.Element {
         setLoading(true);
         const fetchInvoice = async (): Promise<void> => {
             try {
-                const contract = contractService.getBlockBillContract(network);
+                const contract = await contractService.getBlockBillContract(network);
                 const result = await contract.getInvoice(BigInt(id));
                 if (!result?.properties) { setError('Invoice not found'); return; }
                 const p = result.properties;
@@ -66,8 +66,8 @@ export function PayInvoice(): React.JSX.Element {
         setApproveStatus('processing');
 
         try {
-            const tokenContract = contractService.getTokenContract(invoice.token, network, address ?? undefined);
-            const blockbillContract = contractService.getBlockBillContract(network);
+            const tokenContract = await contractService.getTokenContract(invoice.token, network, address ?? undefined);
+            const blockbillContract = await contractService.getBlockBillContract(network);
             const rawAddr = blockbillContract.address;
             if (!rawAddr) throw new Error('BlockBill contract address not found');
             const spenderAddress = typeof rawAddr === 'string' ? Address.fromString(rawAddr) : rawAddr;
@@ -91,7 +91,7 @@ export function PayInvoice(): React.JSX.Element {
         setPayStatus('processing');
 
         try {
-            const contract = contractService.getBlockBillContract(network, address ?? undefined);
+            const contract = await contractService.getBlockBillContract(network, address ?? undefined);
             const sim = await contract.payInvoice(BigInt(id));
             await sim.sendTransaction({
                 signer: null, mldsaSigner: null,

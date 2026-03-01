@@ -111,7 +111,7 @@ export function CreateInvoice(): React.JSX.Element {
 
         const fetchBalance = async (): Promise<void> => {
             try {
-                const tokenContract = contractService.getTokenContract(form.tokenAddress, network);
+                const tokenContract = await contractService.getTokenContract(form.tokenAddress, network);
 
                 // Fetch on-chain decimals first
                 const decimalsResult = await tokenContract.decimals();
@@ -149,7 +149,7 @@ export function CreateInvoice(): React.JSX.Element {
         const loadingToast = toast.loading('Creating invoice on-chain...');
 
         try {
-            const contract = contractService.getBlockBillContract(network, address ?? undefined);
+            const contract = await contractService.getBlockBillContract(network, address ?? undefined);
             const sim = await contract.createInvoice(
                 form.tokenAddress, parsedAmount, form.recipient || '', form.memo || '',
                 BigInt(form.deadline || '0'), taxBps, form.lineItems.length,

@@ -26,7 +26,7 @@ export function InvoiceView(): React.JSX.Element {
 
         const fetchInvoice = async (): Promise<void> => {
             try {
-                const contract = contractService.getBlockBillContract(network);
+                const contract = await contractService.getBlockBillContract(network);
                 const result = await contract.getInvoice(BigInt(id));
                 if (!result?.properties) { setError('Invoice not found'); return; }
 

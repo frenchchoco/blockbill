@@ -33,7 +33,7 @@ export function Dashboard(): React.JSX.Element {
         setLoading(true);
 
         try {
-            const contract = contractService.getBlockBillContract(network);
+            const contract = await contractService.getBlockBillContract(network);
 
             // Get invoice IDs for this wallet
             const result = activeTab === 'created'
