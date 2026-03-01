@@ -188,7 +188,7 @@ export function CreateInvoice(): React.JSX.Element {
             // Step 1: Simulate
             const simulation = await contract.createInvoice(
                 tokenAddr, parsedAmount, recipientAddr, form.memo || '',
-                BigInt(form.deadline || '0'), taxBps, form.lineItems.length,
+                BigInt(form.deadline || '0'), taxBps, 0,
             );
 
             // Step 2: Check revert
