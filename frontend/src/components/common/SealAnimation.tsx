@@ -1,27 +1,40 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 interface SealAnimationProps {
+    /** When true, the wax seal stamps and the animation completes */
+    readonly confirmed: boolean;
     readonly onComplete: () => void;
 }
 
-type Phase = 'enter' | 'stamp' | 'imprint' | 'reveal' | 'done';
+type Phase = 'enter' | 'waiting' | 'stamp' | 'imprint' | 'reveal' | 'done';
 
-export function SealAnimation({ onComplete }: SealAnimationProps): React.JSX.Element {
+export function SealAnimation({ confirmed, onComplete }: SealAnimationProps): React.JSX.Element {
     const [phase, setPhase] = useState<Phase>('enter');
+    const onCompleteRef = useRef(onComplete);
+    onCompleteRef.current = onComplete;
 
+    // Phase 1: envelope enters
     useEffect(() => {
+        const t = setTimeout(() => setPhase('waiting'), 600);
+        return () => clearTimeout(t);
+    }, []);
+
+    // Phase 2: when confirmed, stamp the seal
+    useEffect(() => {
+        if (!confirmed || phase !== 'waiting') return;
+
         const timers = [
-            setTimeout(() => setPhase('stamp'), 600),
-            setTimeout(() => setPhase('imprint'), 1200),
-            setTimeout(() => setPhase('reveal'), 2200),
-            setTimeout(() => setPhase('done'), 3400),
-            setTimeout(onComplete, 4000),
+            setTimeout(() => setPhase('stamp'), 100),
+            setTimeout(() => setPhase('imprint'), 700),
+            setTimeout(() => setPhase('reveal'), 1700),
+            setTimeout(() => setPhase('done'), 2900),
+            setTimeout(() => onCompleteRef.current(), 3500),
         ];
         return () => timers.forEach(clearTimeout);
-    }, [onComplete]);
+    }, [confirmed, phase]);
 
     const past = (target: Phase): boolean => {
-        const order: Phase[] = ['enter', 'stamp', 'imprint', 'reveal', 'done'];
+        const order: Phase[] = ['enter', 'waiting', 'stamp', 'imprint', 'reveal', 'done'];
         return order.indexOf(phase) >= order.indexOf(target);
     };
 
@@ -123,16 +136,30 @@ export function SealAnimation({ onComplete }: SealAnimationProps): React.JSX.Ele
                     </div>
                 </div>
 
-                {/* Text below */}
+                {/* Text below — waiting or confirmed */}
                 <div className={`text-center mt-4 transition-all duration-700 ${
-                    past('reveal') ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'
+                    past('enter') ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'
                 }`}>
-                    <p className="text-[#FFFEF7] text-lg font-serif tracking-wide">
-                        Invoice Sealed
-                    </p>
-                    <p className="text-[#FFFEF7]/40 text-xs mt-1.5 tracking-wider uppercase">
-                        Recorded on Bitcoin L1
-                    </p>
+                    {past('reveal') ? (
+                        <>
+                            <p className="text-[#FFFEF7] text-lg font-serif tracking-wide">
+                                Invoice Sealed
+                            </p>
+                            <p className="text-[#FFFEF7]/40 text-xs mt-1.5 tracking-wider uppercase">
+                                Recorded on Bitcoin L1
+                            </p>
+                        </>
+                    ) : (
+                        <>
+                            <p className="text-[#FFFEF7] text-lg font-serif tracking-wide">
+                                Transaction broadcast
+                            </p>
+                            <p className="text-[#FFFEF7]/40 text-xs mt-1.5 tracking-wider uppercase flex items-center justify-center gap-2">
+                                <span className="inline-block w-3 h-3 border border-[#FFFEF7]/40 border-t-transparent rounded-full animate-spin" />
+                                Waiting for block confirmation...
+                            </p>
+                        </>
+                    )}
                 </div>
             </div>
 

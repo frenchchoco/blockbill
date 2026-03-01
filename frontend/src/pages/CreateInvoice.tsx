@@ -50,6 +50,7 @@ export function CreateInvoice(): React.JSX.Element {
     const [submitting, setSubmitting] = useState(false);
     const [customToken, setCustomToken] = useState(false);
     const [showSeal, setShowSeal] = useState(false);
+    const [sealConfirmed, setSealConfirmed] = useState(false);
     const [tokenBalance, setTokenBalance] = useState<bigint | null>(null);
     const [onChainDecimals, setOnChainDecimals] = useState<number | null>(null);
     const [customTokenName, setCustomTokenName] = useState<string | null>(null);
@@ -208,27 +209,28 @@ export function CreateInvoice(): React.JSX.Element {
                 network,
             });
 
-            // Step 4: Wait for block confirmation (poll every 5s until confirmed)
+            // Step 4: Show envelope immediately, poll for confirmation in background
             toast.dismiss(submitToast);
-            const confirmToast = toast.loading('Waiting for block confirmation — this may take a minute...');
+            setShowSeal(true);
+            setSealConfirmed(false);
 
             const txId = receipt.transactionId;
             const provider = providerService.getProvider(network);
 
-            // eslint-disable-next-line no-constant-condition
-            while (true) {
-                await new Promise((r) => setTimeout(r, 5000));
-                try {
-                    const tx = await provider.getTransaction(txId);
-                    if (tx) break;
-                } catch {
-                    // tx not yet in a block — keep polling
+            // Poll in background — seal stamps when confirmed
+            const pollConfirmation = async (): Promise<void> => {
+                // eslint-disable-next-line no-constant-condition
+                while (true) {
+                    await new Promise((r) => setTimeout(r, 5000));
+                    try {
+                        const tx = await provider.getTransaction(txId);
+                        if (tx) { setSealConfirmed(true); return; }
+                    } catch {
+                        // tx not yet in a block — keep polling
+                    }
                 }
-            }
-
-            toast.dismiss(confirmToast);
-            toast.success('Invoice confirmed on-chain!');
-            setShowSeal(true);
+            };
+            void pollConfirmation();
         } catch (err: unknown) {
             toast.dismiss();
             const msg = err instanceof Error ? err.message : String(err);
@@ -243,7 +245,7 @@ export function CreateInvoice(): React.JSX.Element {
 
     return (
         <>
-        {showSeal && <SealAnimation onComplete={() => navigate('/dashboard')} />}
+        {showSeal && <SealAnimation confirmed={sealConfirmed} onComplete={() => navigate('/dashboard')} />}
         <div className="max-w-6xl mx-auto">
             <h1 className="text-3xl font-serif text-[var(--ink-dark)] mb-8 text-center">Create Invoice</h1>
 
