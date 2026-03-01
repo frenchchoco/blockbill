@@ -1,19 +1,18 @@
 import { useState, useCallback } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useWalletConnect } from '@btc-vision/walletconnect';
+import { useNetwork } from '../../hooks/useNetwork';
+import { getNetworkName } from '../../config/networks';
+import { formatAddress } from '../../config/tokens';
 
 export function Header(): React.JSX.Element {
     const { walletAddress, openConnectModal, disconnect } = useWalletConnect();
+    const { network } = useNetwork();
     const location = useLocation();
     const [mobileOpen, setMobileOpen] = useState(false);
 
     const toggleMobile = useCallback(() => setMobileOpen((prev) => !prev), []);
     const closeMobile = useCallback(() => setMobileOpen(false), []);
-
-    const formatAddr = (addr: string): string => {
-        if (addr.length <= 12) return addr;
-        return `${addr.slice(0, 6)}\u2026${addr.slice(-6)}`;
-    };
 
     const isActive = (path: string): boolean => location.pathname === path;
 
@@ -39,9 +38,9 @@ export function Header(): React.JSX.Element {
                     {walletAddress ? (
                         <div className="flex items-center gap-3">
                             <span className="text-[10px] bg-[var(--accent-gold)] text-white px-2 py-0.5 rounded-full uppercase tracking-wider font-medium">
-                                Testnet
+                                {getNetworkName(network)}
                             </span>
-                            <span className="text-sm text-[var(--ink-medium)] font-mono">{formatAddr(walletAddress)}</span>
+                            <span className="text-sm text-[var(--ink-medium)] font-mono">{formatAddress(walletAddress)}</span>
                             <button type="button" onClick={disconnect}
                                 className="text-xs text-[var(--stamp-red)] hover:underline">
                                 Disconnect
@@ -79,8 +78,8 @@ export function Header(): React.JSX.Element {
                         {walletAddress ? (
                             <div className="flex items-center justify-between px-3">
                                 <div>
-                                    <span className="text-[10px] bg-[var(--accent-gold)] text-white px-2 py-0.5 rounded-full uppercase tracking-wider font-medium">Testnet</span>
-                                    <span className="text-xs text-[var(--ink-medium)] font-mono ml-2">{formatAddr(walletAddress)}</span>
+                                    <span className="text-[10px] bg-[var(--accent-gold)] text-white px-2 py-0.5 rounded-full uppercase tracking-wider font-medium">{getNetworkName(network)}</span>
+                                    <span className="text-xs text-[var(--ink-medium)] font-mono ml-2">{formatAddress(walletAddress)}</span>
                                 </div>
                                 <button type="button" onClick={() => { disconnect(); closeMobile(); }}
                                     className="text-xs text-[var(--stamp-red)] hover:underline">

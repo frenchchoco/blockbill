@@ -5,28 +5,22 @@ export interface ContractAddresses {
     readonly blockbill: string;
 }
 
-function networkKey(n: Network): string {
-    return n.bech32Opnet ?? n.bech32;
-}
-
-// Keyed by bech32Opnet (taproot) prefix to avoid reference comparison issues
-const CONTRACT_ADDRESSES: Record<string, ContractAddresses> = {
-    [networkKey(networks.opnetTestnet)]: {
-        blockbill: '0xcf31c27f8cd769d50e6acb5a6081e707a01dc0b50e9f15cade43f68fbb638cff',
-    },
-    [networkKey(networks.regtest)]: {
+const CONTRACT_ADDRESSES: Map<Network, ContractAddresses> = new Map([
+    [networks.opnetTestnet, {
+        blockbill: '0x9c4a95f674e5037f581885f0da7d76cc4ca0f8116d467891e09a7313f956b7e6',
+    }],
+    [networks.regtest, {
         blockbill: '',
-    },
-    [networkKey(networks.bitcoin)]: {
+    }],
+    [networks.bitcoin, {
         blockbill: '',
-    },
-};
+    }],
+]);
 
 export function getBlockBillAddress(network: Network): string {
-    const key = networkKey(network);
-    const addresses = CONTRACT_ADDRESSES[key];
+    const addresses = CONTRACT_ADDRESSES.get(network);
     if (!addresses) {
-        throw new Error(`No addresses configured for network (key=${key})`);
+        throw new Error('No addresses configured for this network');
     }
     if (!addresses.blockbill) {
         throw new Error('BlockBill contract not deployed on this network');

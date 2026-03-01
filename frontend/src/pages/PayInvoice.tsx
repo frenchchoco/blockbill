@@ -8,6 +8,7 @@ import { StampBadge } from '../components/common/StampBadge';
 import { InvoiceStatus } from '../types/invoice';
 import type { InvoiceData } from '../types/invoice';
 import { useNetwork } from '../hooks/useNetwork';
+import { useTokenApproval } from '../hooks/useTokenApproval';
 import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
 
@@ -23,6 +24,7 @@ export function PayInvoice(): React.JSX.Element {
     const [invoice, setInvoice] = useState<InvoiceData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const { approve: approveToken } = useTokenApproval();
     const [approveStatus, setApproveStatus] = useState<StepStatus>('waiting');
     const [payStatus, setPayStatus] = useState<StepStatus>('waiting');
     const [txSubmitted, setTxSubmitted] = useState(false);
@@ -67,26 +69,14 @@ export function PayInvoice(): React.JSX.Element {
         setApproveStatus('processing');
 
         try {
-            const tokenContract = contractService.getTokenContract(invoice.token, network, address ?? undefined);
-            // Resolve the BlockBill contract address to an Address object for the spender
-            const blockbillHex = contractService.getBlockBillContract(network).address;
-            const spenderAddress = typeof blockbillHex === 'string'
-                ? Address.fromString(blockbillHex)
-                : blockbillHex;
-
-            const sim = await tokenContract.increaseAllowance(spenderAddress, invoice.totalAmount);
-            await sim.sendTransaction({
-                signer: null, mldsaSigner: null,
-                refundTo: walletAddress, maximumAllowedSatToSpend: 50000n, network,
-            });
-
+            await approveToken(invoice.token, invoice.totalAmount);
             setApproveStatus('done');
             toast.success('Token approved!');
         } catch (err: unknown) {
             setApproveStatus('error');
             toast.error(err instanceof Error ? err.message : 'Approval failed');
         }
-    }, [walletAddress, address, invoice, network]);
+    }, [walletAddress, invoice, approveToken]);
 
     const handlePay = useCallback(async () => {
         if (!walletAddress || !id) return;
@@ -94,10 +84,22 @@ export function PayInvoice(): React.JSX.Element {
 
         try {
             const contract = contractService.getBlockBillContract(network, address ?? undefined);
-            const sim = await contract.payInvoice(BigInt(id));
-            await sim.sendTransaction({
-                signer: null, mldsaSigner: null,
-                refundTo: walletAddress, maximumAllowedSatToSpend: 50000n, network,
+
+            // Step 1: Simulate
+            const simulation = await contract.payInvoice(BigInt(id));
+
+            // Step 2: Check revert
+            if (simulation.revert) {
+                throw new Error(`Simulation reverted: ${simulation.revert}`);
+            }
+
+            // Step 3: Send transaction (wallet handles signing)
+            await simulation.sendTransaction({
+                signer: null,
+                mldsaSigner: null,
+                refundTo: walletAddress,
+                maximumAllowedSatToSpend: 100_000n,
+                network,
             });
 
             setPayStatus('done');

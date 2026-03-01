@@ -385,8 +385,8 @@ export class BlockBillContract extends OP_NET {
         writer.writeU256(count);
 
         for (let i: u32 = 0; i < countU32; i++) {
-            const listKey: u256 = SafeMath.add(
-                SafeMath.mul(addrKey, u256.fromU32(MAX_INDEX_ENTRIES)),
+            const listKey: u256 = u256.add(
+                u256.mul(addrKey, u256.fromU32(MAX_INDEX_ENTRIES)),
                 u256.fromU32(i),
             );
             const invoiceId: u256 = this.loadU256At(this.pCreatorList, listKey);
@@ -408,8 +408,8 @@ export class BlockBillContract extends OP_NET {
         writer.writeU256(count);
 
         for (let i: u32 = 0; i < countU32; i++) {
-            const listKey: u256 = SafeMath.add(
-                SafeMath.mul(addrKey, u256.fromU32(MAX_INDEX_ENTRIES)),
+            const listKey: u256 = u256.add(
+                u256.mul(addrKey, u256.fromU32(MAX_INDEX_ENTRIES)),
                 u256.fromU32(i),
             );
             const invoiceId: u256 = this.loadU256At(this.pRecipientList, listKey);
@@ -610,9 +610,9 @@ export class BlockBillContract extends OP_NET {
         const count: u256 = this.loadU256At(this.pCreatorCount, addrKey);
         const countU32: u32 = count.toU32();
 
-        // Store invoiceId at list[count]
-        const listKey: u256 = SafeMath.add(
-            SafeMath.mul(addrKey, u256.fromU32(MAX_INDEX_ENTRIES)),
+        // Use wrapping mul/add for storage key derivation (addrKey * MAX overflows with SafeMath)
+        const listKey: u256 = u256.add(
+            u256.mul(addrKey, u256.fromU32(MAX_INDEX_ENTRIES)),
             u256.fromU32(countU32),
         );
         this.storeU256At(this.pCreatorList, listKey, invoiceId);
@@ -626,8 +626,9 @@ export class BlockBillContract extends OP_NET {
         const count: u256 = this.loadU256At(this.pRecipientCount, addrKey);
         const countU32: u32 = count.toU32();
 
-        const listKey: u256 = SafeMath.add(
-            SafeMath.mul(addrKey, u256.fromU32(MAX_INDEX_ENTRIES)),
+        // Use wrapping mul/add for storage key derivation (addrKey * MAX overflows with SafeMath)
+        const listKey: u256 = u256.add(
+            u256.mul(addrKey, u256.fromU32(MAX_INDEX_ENTRIES)),
             u256.fromU32(countU32),
         );
         this.storeU256At(this.pRecipientList, listKey, invoiceId);

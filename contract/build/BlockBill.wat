@@ -2865,34 +2865,34 @@
   end
   i32.const 0
   local.set $2
-  block $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$725
+  block $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$757
    local.get $5
    global.get $~lib/@btc-vision/btc-runtime/runtime/script/Networks/Network
    local.tee $6
    i32.load
    call $~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#equals
-   br_if $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$725
+   br_if $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$757
    i32.const 1
    local.set $2
    local.get $5
    local.get $6
    i32.load offset=4
    call $~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#equals
-   br_if $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$725
+   br_if $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$757
    i32.const 2
    local.set $2
    local.get $5
    local.get $6
    i32.load offset=12
    call $~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#equals
-   br_if $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$725
+   br_if $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$757
    i32.const 3
    local.set $2
    local.get $5
    local.get $6
    i32.load offset=8
    call $~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#equals
-   br_if $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$725
+   br_if $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/script/Networks/NetworkManager#fromChainId$757
    unreachable
   end
   local.get $0
@@ -6212,6 +6212,7 @@
  (func $src/BlockBillContract/BlockBillContract#addToCreatorIndex (param $0 i32) (param $1 i32) (param $2 i32)
   (local $3 i32)
   (local $4 i32)
+  (local $5 i32)
   local.get $1
   i32.load offset=8
   i32.const 32
@@ -6234,24 +6235,40 @@
   i64.load
   call $~lib/polyfills/bswap<u64>
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-  local.set $1
+  local.set $4
   local.get $0
   i32.load16_u offset=40
-  local.get $1
+  local.get $4
   call $src/BlockBillContract/BlockBillContract#loadU256At
-  local.tee $3
+  local.tee $1
   i64.load
   i32.wrap_i64
-  local.set $4
-  local.get $1
+  local.set $5
   i64.const 1000
   i64.const 0
   i64.const 0
   i64.const 0
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-  call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.mul
+  local.set $3
+  local.get $4
+  i64.load
+  local.get $4
+  i64.load offset=8
+  local.get $4
+  i64.load offset=16
+  local.get $4
+  i64.load offset=24
+  local.get $3
+  i64.load
+  local.get $3
+  i64.load offset=8
+  local.get $3
+  i64.load offset=16
+  local.get $3
+  i64.load offset=24
+  call $~lib/@btc-vision/as-bignum/assembly/globals/__mul256
   block $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU32|inlined.16 (result i32)
-   local.get $4
+   local.get $5
    i32.eqz
    if
     i64.const 0
@@ -6261,7 +6278,7 @@
     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
     br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU32|inlined.16
    end
-   local.get $4
+   local.get $5
    i32.const 1
    i32.eq
    if
@@ -6272,24 +6289,24 @@
     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
     br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU32|inlined.16
    end
-   local.get $4
+   local.get $5
    i64.extend_i32_u
    i64.const 0
    i64.const 0
    i64.const 0
    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
   end
-  call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
-  local.set $4
+  call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.add
+  local.set $3
   local.get $0
   i32.load16_u offset=42
-  local.get $4
+  local.get $3
   local.get $2
   call $src/BlockBillContract/BlockBillContract#storeU256At
   local.get $0
   i32.load16_u offset=40
+  local.get $4
   local.get $1
-  local.get $3
   i64.const 1
   i64.const 0
   i64.const 0
@@ -6325,6 +6342,7 @@
  (func $src/BlockBillContract/BlockBillContract#addToRecipientIndex (param $0 i32) (param $1 i32) (param $2 i32)
   (local $3 i32)
   (local $4 i32)
+  (local $5 i32)
   local.get $1
   i32.load offset=8
   i32.const 32
@@ -6347,24 +6365,40 @@
   i64.load
   call $~lib/polyfills/bswap<u64>
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-  local.set $1
+  local.set $4
   local.get $0
   i32.load16_u offset=44
-  local.get $1
+  local.get $4
   call $src/BlockBillContract/BlockBillContract#loadU256At
-  local.tee $3
+  local.tee $1
   i64.load
   i32.wrap_i64
-  local.set $4
-  local.get $1
+  local.set $5
   i64.const 1000
   i64.const 0
   i64.const 0
   i64.const 0
   call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-  call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.mul
+  local.set $3
+  local.get $4
+  i64.load
+  local.get $4
+  i64.load offset=8
+  local.get $4
+  i64.load offset=16
+  local.get $4
+  i64.load offset=24
+  local.get $3
+  i64.load
+  local.get $3
+  i64.load offset=8
+  local.get $3
+  i64.load offset=16
+  local.get $3
+  i64.load offset=24
+  call $~lib/@btc-vision/as-bignum/assembly/globals/__mul256
   block $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU32|inlined.18 (result i32)
-   local.get $4
+   local.get $5
    i32.eqz
    if
     i64.const 0
@@ -6374,7 +6408,7 @@
     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
     br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU32|inlined.18
    end
-   local.get $4
+   local.get $5
    i32.const 1
    i32.eq
    if
@@ -6385,24 +6419,24 @@
     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
     br $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU32|inlined.18
    end
-   local.get $4
+   local.get $5
    i64.extend_i32_u
    i64.const 0
    i64.const 0
    i64.const 0
    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
   end
-  call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
-  local.set $4
+  call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.add
+  local.set $3
   local.get $0
   i32.load16_u offset=46
-  local.get $4
+  local.get $3
   local.get $2
   call $src/BlockBillContract/BlockBillContract#storeU256At
   local.get $0
   i32.load16_u offset=44
+  local.get $4
   local.get $1
-  local.get $3
   i64.const 1
   i64.const 0
   i64.const 0
@@ -7023,7 +7057,7 @@
   call $src/BlockBillContract/BlockBillContract#loadAddressAt
   local.set $6
   local.get $5
-  block $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.div$714 (result i32)
+  block $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.div$746 (result i32)
    local.get $5
    global.get $src/BlockBillContract/FEE_BPS
    call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.mul
@@ -7062,7 +7096,7 @@
     i64.const 0
     i64.const 0
     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    br $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.div$714
+    br $__inlined_func$~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.div$746
    end
    local.get $7
    local.get $8
@@ -7884,13 +7918,29 @@
    local.get $4
    i32.lt_u
    if
-    local.get $2
     i64.const 1000
     i64.const 0
     i64.const 0
     i64.const 0
     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.mul
+    local.set $5
+    local.get $2
+    i64.load
+    local.get $2
+    i64.load offset=8
+    local.get $2
+    i64.load offset=16
+    local.get $2
+    i64.load offset=24
+    local.get $5
+    i64.load
+    local.get $5
+    i64.load offset=8
+    local.get $5
+    i64.load offset=16
+    local.get $5
+    i64.load offset=24
+    call $~lib/@btc-vision/as-bignum/assembly/globals/__mul256
     block $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU32|inlined.25 (result i32)
      local.get $1
      i32.eqz
@@ -7920,7 +7970,7 @@
      i64.const 0
      call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
     end
-    call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
+    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.add
     local.set $5
     local.get $3
     local.get $0
@@ -7990,13 +8040,29 @@
    local.get $4
    i32.lt_u
    if
-    local.get $2
     i64.const 1000
     i64.const 0
     i64.const 0
     i64.const 0
     call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
-    call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.mul
+    local.set $5
+    local.get $2
+    i64.load
+    local.get $2
+    i64.load offset=8
+    local.get $2
+    i64.load offset=16
+    local.get $2
+    i64.load offset=24
+    local.get $5
+    i64.load
+    local.get $5
+    i64.load offset=8
+    local.get $5
+    i64.load offset=16
+    local.get $5
+    i64.load offset=24
+    call $~lib/@btc-vision/as-bignum/assembly/globals/__mul256
     block $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.fromU32|inlined.27 (result i32)
      local.get $1
      i32.eqz
@@ -8026,7 +8092,7 @@
      i64.const 0
      call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256#constructor
     end
-    call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
+    call $~lib/@btc-vision/as-bignum/assembly/integer/u256/u256.add
     local.set $5
     local.get $3
     local.get $0

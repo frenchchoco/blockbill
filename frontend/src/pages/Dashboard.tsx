@@ -49,48 +49,42 @@ export function Dashboard(): React.JSX.Element {
                 return;
             }
 
-            // Fetch each invoice
-            const countNum = Number(count);
-            const fetchedInvoices: InvoiceData[] = [];
-            // Wallet hex for comparison with Address.toString() (which returns hex)
+            // Fetch all invoices in parallel (Promise.all per OPNet guidelines)
+            const countNum = Math.min(Number(count), 50);
             const walletHex = address.toHex().toLowerCase();
 
-            for (let i = 1; i <= countNum && i <= 50; i++) {
-                try {
-                    const invResult = await contract.getInvoice(BigInt(i));
-                    if (!invResult?.properties) continue;
-                    const p = invResult.properties;
+            const promises = Array.from({ length: countNum }, (_, i) =>
+                contract.getInvoice(BigInt(i + 1)).catch(() => null),
+            );
+            const results = await Promise.all(promises);
 
-                    const creatorAddr = p.creator as Address | undefined;
-                    const tokenAddr = p.token as Address | undefined;
-                    const recipientAddr = p.recipient as Address | undefined;
-                    const paidByAddr = p.paidBy as Address | undefined;
+            const fetchedInvoices: InvoiceData[] = [];
+            for (let i = 0; i < results.length; i++) {
+                const invResult = results[i];
+                if (!invResult?.properties) continue;
+                const p = invResult.properties;
 
-                    const inv: InvoiceData = {
-                        id: BigInt(i),
-                        creator: creatorAddr?.toHex() ?? '',
-                        token: tokenAddr?.toHex() ?? '',
-                        totalAmount: p.totalAmount ?? 0n,
-                        recipient: recipientAddr?.toHex() ?? '',
-                        memo: p.memo ?? '',
-                        deadline: p.deadline ?? 0n,
-                        taxBps: p.taxBps ?? 0,
-                        status: (p.status ?? 0) as InvoiceStatus,
-                        paidBy: paidByAddr?.toHex() ?? '',
-                        paidAtBlock: p.paidAtBlock ?? 0n,
-                        createdAtBlock: p.createdAtBlock ?? 0n,
-                        btcTxHash: p.btcTxHash ?? '',
-                        lineItemCount: p.lineItemCount ?? 0,
-                    };
+                const inv: InvoiceData = {
+                    id: BigInt(i + 1),
+                    creator: (p.creator as Address | undefined)?.toHex() ?? '',
+                    token: (p.token as Address | undefined)?.toHex() ?? '',
+                    totalAmount: p.totalAmount ?? 0n,
+                    recipient: (p.recipient as Address | undefined)?.toHex() ?? '',
+                    memo: p.memo ?? '',
+                    deadline: p.deadline ?? 0n,
+                    taxBps: p.taxBps ?? 0,
+                    status: (p.status ?? 0) as InvoiceStatus,
+                    paidBy: (p.paidBy as Address | undefined)?.toHex() ?? '',
+                    paidAtBlock: p.paidAtBlock ?? 0n,
+                    createdAtBlock: p.createdAtBlock ?? 0n,
+                    btcTxHash: p.btcTxHash ?? '',
+                    lineItemCount: p.lineItemCount ?? 0,
+                };
 
-                    // Filter by tab - compare hex representations
-                    const isCreator = inv.creator.toLowerCase() === walletHex;
-                    const isRecipient = inv.recipient.toLowerCase() === walletHex;
-                    if (activeTab === 'created' && isCreator) fetchedInvoices.push(inv);
-                    else if (activeTab === 'received' && isRecipient) fetchedInvoices.push(inv);
-                } catch {
-                    // Skip individual invoice errors
-                }
+                const isCreator = inv.creator.toLowerCase() === walletHex;
+                const isRecipient = inv.recipient.toLowerCase() === walletHex;
+                if (activeTab === 'created' && isCreator) fetchedInvoices.push(inv);
+                else if (activeTab === 'received' && isRecipient) fetchedInvoices.push(inv);
             }
 
             setInvoices(fetchedInvoices);

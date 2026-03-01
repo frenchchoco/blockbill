@@ -8,6 +8,7 @@ import { StampBadge } from '../components/common/StampBadge';
 import { SealAnimation } from '../components/common/SealAnimation';
 import { InvoiceStatus } from '../types/invoice';
 import { useNetwork } from '../hooks/useNetwork';
+import { useAddressValidation } from '../hooks/useAddressValidation';
 import { contractService } from '../services/ContractService';
 import { getKnownTokens, findToken, parseTokenAmount, formatTokenAmount, formatAddress, isBtcToken } from '../config/tokens';
 import type { TokenInfo } from '../config/tokens';
@@ -101,6 +102,13 @@ export function CreateInvoice(): React.JSX.Element {
 
     const isBtc = isBtcToken(form.tokenAddress);
 
+    // Validate custom addresses with AddressVerificator
+    const tokenValidation = useAddressValidation(
+        customToken ? form.tokenAddress : '',
+        network,
+    );
+    const recipientValidation = useAddressValidation(form.recipient, network);
+
     // Fetch token balance and on-chain decimals when token or wallet changes
     useEffect(() => {
         setTokenBalance(null);
@@ -119,16 +127,17 @@ export function CreateInvoice(): React.JSX.Element {
 
                 const tokenContract = contractService.getTokenContract(resolvedHex, network);
 
-                // Fetch on-chain decimals first
-                const decimalsResult = await tokenContract.decimals();
-                if (!cancelled && decimalsResult?.properties) {
-                    setOnChainDecimals(decimalsResult.properties.decimals);
-                }
+                // Use metadata() for decimals (1 RPC call) + balanceOf in parallel
+                const [metadataResult, balanceResult] = await Promise.all([
+                    tokenContract.metadata(),
+                    tokenContract.balanceOf(address),
+                ]);
 
-                // Fetch balance
-                const result = await tokenContract.balanceOf(address);
-                if (!cancelled && result?.properties) {
-                    setTokenBalance(result.properties.balance ?? 0n);
+                if (!cancelled && metadataResult?.properties) {
+                    setOnChainDecimals(metadataResult.properties.decimals);
+                }
+                if (!cancelled && balanceResult?.properties) {
+                    setTokenBalance(balanceResult.properties.balance ?? 0n);
                 }
             } catch (err: unknown) {
                 console.error('[BlockBill] Balance fetch failed:', err);
@@ -150,6 +159,8 @@ export function CreateInvoice(): React.JSX.Element {
         if (!walletAddress || submitting) return;
         if (parsedAmount === 0n) { toast.error('Amount must be greater than 0'); return; }
         if (!form.tokenAddress) { toast.error('Please select a token'); return; }
+        if (customToken && !tokenValidation.isValid) { toast.error(tokenValidation.error ?? 'Invalid token address'); return; }
+        if (form.recipient && !recipientValidation.isValid) { toast.error(recipientValidation.error ?? 'Invalid recipient address'); return; }
         if (form.lineItems.length > 0 && lineItemsTotal > 0n && lineItemsTotal !== parsedAmount) {
             toast.error('Line items total must equal the invoice amount');
             return;
@@ -168,25 +179,37 @@ export function CreateInvoice(): React.JSX.Element {
                 : Address.dead();
 
             const contract = contractService.getBlockBillContract(network, address ?? undefined);
-            const sim = await contract.createInvoice(
+
+            // Step 1: Simulate
+            const simulation = await contract.createInvoice(
                 tokenAddr, parsedAmount, recipientAddr, form.memo || '',
                 BigInt(form.deadline || '0'), taxBps, form.lineItems.length,
             );
 
-            await sim.sendTransaction({
-                signer: null, mldsaSigner: null,
-                refundTo: walletAddress, maximumAllowedSatToSpend: 50000n, network,
+            // Step 2: Check revert
+            if (simulation.revert) {
+                throw new Error(`Simulation reverted: ${simulation.revert}`);
+            }
+
+            // Step 3: Send transaction (wallet handles signing)
+            await simulation.sendTransaction({
+                signer: null,
+                mldsaSigner: null,
+                refundTo: walletAddress,
+                maximumAllowedSatToSpend: 100_000n,
+                network,
             });
 
             toast.dismiss(loadingToast);
             setShowSeal(true);
         } catch (err: unknown) {
             toast.dismiss(loadingToast);
-            toast.error(err instanceof Error ? err.message : 'Transaction failed');
+            const msg = err instanceof Error ? err.message : String(err);
+            toast.error(msg.includes('unreachable') ? 'Contract reverted — check inputs and try again' : msg);
         } finally {
             setSubmitting(false);
         }
-    }, [walletAddress, address, submitting, form, parsedAmount, lineItemsTotal, taxBps, network, navigate]);
+    }, [walletAddress, address, submitting, form, parsedAmount, lineItemsTotal, taxBps, network, navigate, customToken, tokenValidation, recipientValidation]);
 
     const inputCls = 'w-full px-4 py-2.5 bg-[var(--paper-bg)] border border-[var(--border-paper)] rounded-lg text-[var(--ink-dark)] placeholder:text-[var(--ink-light)] focus:outline-none focus:border-[var(--accent-gold)] focus:ring-1 focus:ring-[var(--accent-gold)] transition-colors';
     const labelCls = 'block text-sm font-serif font-medium text-[var(--ink-dark)] mb-1.5';
@@ -261,6 +284,9 @@ export function CreateInvoice(): React.JSX.Element {
                                     <input type="text" value={form.tokenAddress}
                                         onChange={(e) => updateField('tokenAddress', e.target.value)}
                                         placeholder="0x... or opt1..." required className={inputCls} />
+                                    {form.tokenAddress && !tokenValidation.isValid && tokenValidation.error && (
+                                        <p className="text-xs text-[var(--stamp-red)]">{tokenValidation.error}</p>
+                                    )}
                                     <button type="button" onClick={() => { setCustomToken(false); updateField('tokenAddress', ''); }}
                                         className="text-xs text-[var(--accent-gold)] hover:underline">
                                         Back to token list
@@ -302,6 +328,9 @@ export function CreateInvoice(): React.JSX.Element {
                                         <input id="recipient" type="text" value={form.recipient}
                                             onChange={(e) => updateField('recipient', e.target.value)}
                                             placeholder="opt1... or leave empty" className={inputCls} />
+                                        {form.recipient && !recipientValidation.isValid && recipientValidation.error && (
+                                            <p className="text-xs text-[var(--stamp-red)] mt-1">{recipientValidation.error}</p>
+                                        )}
                                     </div>
                                     <div>
                                         <label htmlFor="memo" className={labelCls}>Memo</label>

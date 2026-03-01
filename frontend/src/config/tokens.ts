@@ -57,18 +57,14 @@ const REGTEST_TOKENS: readonly TokenInfo[] = [
     },
 ];
 
-function networkKey(n: Network): string {
-    return n.bech32Opnet ?? n.bech32;
-}
-
-const TOKEN_MAP: Record<string, readonly TokenInfo[]> = {
-    [networkKey(networks.opnetTestnet)]: TESTNET_TOKENS,
-    [networkKey(networks.regtest)]: REGTEST_TOKENS,
-    [networkKey(networks.bitcoin)]: [BTC_TOKEN],
-};
+const TOKEN_MAP: Map<Network, readonly TokenInfo[]> = new Map([
+    [networks.opnetTestnet, TESTNET_TOKENS],
+    [networks.regtest, REGTEST_TOKENS],
+    [networks.bitcoin, [BTC_TOKEN]],
+]);
 
 export function getKnownTokens(network: Network): readonly TokenInfo[] {
-    return TOKEN_MAP[networkKey(network)] ?? [BTC_TOKEN];
+    return TOKEN_MAP.get(network) ?? [BTC_TOKEN];
 }
 
 export function findToken(address: string, network: Network): TokenInfo | undefined {
