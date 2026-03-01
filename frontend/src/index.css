@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+/* Paper/Stationery Theme Custom Properties */
+:root {
+    --paper-bg: #FFFEF7;
+    --paper-card: #FFF8E7;
+    --paper-card-dark: #F5EDD6;
+    --ink-dark: #3E2723;
+    --ink-medium: #5D4037;
+    --ink-light: #8D6E63;
+    --accent-gold: #8B6914;
+    --accent-gold-light: #B8941C;
+    --stamp-red: #C62828;
+    --stamp-orange: #EF6C00;
+    --stamp-grey: #9E9E9E;
+    --stamp-green: #2E7D32;
+    --border-paper: #D4C5A9;
+    --shadow-paper: rgba(62, 39, 35, 0.08);
+}
+
+/* Dark mode (parchment dark) */
+.dark {
+    --paper-bg: #2C1F16;
+    --paper-card: #3E2B1F;
+    --paper-card-dark: #4A3527;
+    --ink-dark: #F5E6D3;
+    --ink-medium: #D4B896;
+    --ink-light: #B8976A;
+    --accent-gold: #D4A843;
+    --accent-gold-light: #E8C165;
+    --stamp-red: #EF5350;
+    --stamp-orange: #FFA726;
+    --stamp-grey: #BDBDBD;
+    --stamp-green: #66BB6A;
+    --border-paper: #5D4037;
+    --shadow-paper: rgba(0, 0, 0, 0.3);
+}
+
+body {
+    background-color: var(--paper-bg);
+    color: var(--ink-dark);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
+}
+
+/* Paper texture overlay */
+.paper-texture {
+    background-image:
+        radial-gradient(circle at 25% 25%, rgba(139, 105, 20, 0.02) 0%, transparent 50%),
+        radial-gradient(circle at 75% 75%, rgba(93, 64, 55, 0.02) 0%, transparent 50%);
+}
+
+/* Stamp badge styles */
+.stamp {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem 0.75rem;
+    border: 3px solid currentColor;
+    border-radius: 4px;
+    font-family: 'Playfair Display', serif;
+    font-weight: 700;
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    transform: rotate(-3deg);
+    opacity: 0.85;
+}
+
+.stamp-paid {
+    color: var(--stamp-red);
+    border-color: var(--stamp-red);
+}
+
+.stamp-pending {
+    color: var(--stamp-orange);
+    border-color: var(--stamp-orange);
+}
+
+.stamp-expired {
+    color: var(--stamp-grey);
+    border-color: var(--stamp-grey);
+}
+
+.stamp-cancelled {
+    color: var(--stamp-grey);
+    border-color: var(--stamp-grey);
+    text-decoration: line-through;
+}
