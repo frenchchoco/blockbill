@@ -27,7 +27,7 @@ export function PayInvoice(): React.JSX.Element {
     const [invoice, setInvoice] = useState<InvoiceData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const { approve: approveToken } = useTokenApproval();
+    const { approve: approveToken, checkAllowance } = useTokenApproval();
     const [approveStatus, setApproveStatus] = useState<StepStatus>('waiting');
     const [payStatus, setPayStatus] = useState<StepStatus>('waiting');
     const [showSeal, setShowSeal] = useState(false);
@@ -67,6 +67,24 @@ export function PayInvoice(): React.JSX.Element {
         };
         void fetchInvoice();
     }, [id, network]);
+
+    // Check existing allowance on load — skip approve step if sufficient
+    useEffect(() => {
+        if (!invoice || !address) return;
+        let cancelled = false;
+        const check = async (): Promise<void> => {
+            try {
+                const allowance = await checkAllowance(invoice.token);
+                if (!cancelled && allowance >= invoice.totalAmount) {
+                    setApproveStatus('done');
+                }
+            } catch {
+                // allowance check failed, user will need to approve manually
+            }
+        };
+        void check();
+        return () => { cancelled = true; };
+    }, [invoice, address, checkAllowance]);
 
     const handleApprove = useCallback(async () => {
         if (!walletAddress || !invoice) return;
