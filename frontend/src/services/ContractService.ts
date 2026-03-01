@@ -1,7 +1,7 @@
 import { getContract, OP_20_ABI } from 'opnet';
 import type { IOP20Contract } from 'opnet';
 import type { Network } from '@btc-vision/bitcoin';
-import { Address } from '@btc-vision/transaction';
+import type { Address } from '@btc-vision/transaction';
 import { providerService } from './ProviderService';
 import { BLOCKBILL_ABI } from '../abi/BlockBillABI';
 import type { IBlockBillContract } from '../abi/BlockBillABI';
@@ -20,15 +20,14 @@ class ContractService {
         return ContractService.instance;
     }
 
-    public getBlockBillContract(network: Network, senderAddress?: string): IBlockBillContract {
+    public getBlockBillContract(network: Network, sender?: Address): IBlockBillContract {
         const address = getBlockBillAddress(network);
-        const key = `blockbill:${address}:${senderAddress ?? 'none'}`;
+        const key = `blockbill:${address}:${sender?.toString() ?? 'none'}`;
         const existing = this.contracts.get(key) as IBlockBillContract | undefined;
         if (existing) {
             return existing;
         }
         const provider = providerService.getProvider(network);
-        const sender = senderAddress ? Address.fromString(senderAddress) : undefined;
         const contract = getContract<IBlockBillContract>(
             address, BLOCKBILL_ABI, provider, network, sender
         );
@@ -36,14 +35,13 @@ class ContractService {
         return contract;
     }
 
-    public getTokenContract(tokenAddress: string, network: Network, senderAddress?: string): IOP20Contract {
-        const key = `token:${tokenAddress}:${senderAddress ?? 'none'}`;
+    public getTokenContract(tokenAddress: string, network: Network, sender?: Address): IOP20Contract {
+        const key = `token:${tokenAddress}:${sender?.toString() ?? 'none'}`;
         const existing = this.contracts.get(key) as IOP20Contract | undefined;
         if (existing) {
             return existing;
         }
         const provider = providerService.getProvider(network);
-        const sender = senderAddress ? Address.fromString(senderAddress) : undefined;
         const contract = getContract<IOP20Contract>(
             tokenAddress, OP_20_ABI, provider, network, sender
         );

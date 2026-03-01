@@ -8,7 +8,6 @@ import { SealAnimation } from '../components/common/SealAnimation';
 import { InvoiceStatus } from '../types/invoice';
 import { useNetwork } from '../hooks/useNetwork';
 import { contractService } from '../services/ContractService';
-import { Address } from '@btc-vision/transaction';
 import { getKnownTokens, findToken, parseTokenAmount, formatTokenAmount, formatAddress, isBtcToken } from '../config/tokens';
 import type { TokenInfo } from '../config/tokens';
 
@@ -40,7 +39,7 @@ const INITIAL_FORM: InvoiceFormData = {
 const MAX_LINE_ITEMS = 10;
 
 export function CreateInvoice(): React.JSX.Element {
-    const { walletAddress } = useWalletConnect();
+    const { walletAddress, address } = useWalletConnect();
     const { network } = useNetwork();
     const navigate = useNavigate();
     const [form, setForm] = useState<InvoiceFormData>(INITIAL_FORM);
@@ -102,20 +101,21 @@ export function CreateInvoice(): React.JSX.Element {
     // Fetch token balance when token or wallet changes
     useEffect(() => {
         setTokenBalance(null);
-        if (!walletAddress || !form.tokenAddress || isBtcToken(form.tokenAddress)) return;
+        if (!address || !form.tokenAddress || isBtcToken(form.tokenAddress)) return;
 
         let cancelled = false;
         setBalanceLoading(true);
 
         const fetchBalance = async (): Promise<void> => {
             try {
-                const tokenContract = contractService.getTokenContract(form.tokenAddress, network, walletAddress);
-                const ownerAddr = Address.fromString(walletAddress);
-                const result = await tokenContract.balanceOf(ownerAddr);
+                // Use getContract without sender for read-only calls (matches blocktip pattern)
+                const tokenContract = contractService.getTokenContract(form.tokenAddress, network);
+                const result = await tokenContract.balanceOf(address);
                 if (!cancelled && result?.properties) {
                     setTokenBalance(result.properties.balance ?? 0n);
                 }
-            } catch {
+            } catch (err: unknown) {
+                console.error('[BlockBill] Balance fetch failed:', err);
                 if (!cancelled) setTokenBalance(null);
             } finally {
                 if (!cancelled) setBalanceLoading(false);
@@ -124,7 +124,7 @@ export function CreateInvoice(): React.JSX.Element {
         void fetchBalance();
 
         return () => { cancelled = true; };
-    }, [form.tokenAddress, walletAddress, network]);
+    }, [form.tokenAddress, address, network]);
 
     const handleSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
@@ -136,7 +136,7 @@ export function CreateInvoice(): React.JSX.Element {
         const loadingToast = toast.loading('Creating invoice on-chain...');
 
         try {
-            const contract = contractService.getBlockBillContract(network, walletAddress);
+            const contract = contractService.getBlockBillContract(network, address ?? undefined);
             const sim = await contract.createInvoice(
                 form.tokenAddress, parsedAmount, form.recipient || '', form.memo || '',
                 BigInt(form.deadline || '0'), taxBps, form.lineItems.length,
@@ -155,7 +155,7 @@ export function CreateInvoice(): React.JSX.Element {
         } finally {
             setSubmitting(false);
         }
-    }, [walletAddress, submitting, form, parsedAmount, taxBps, network, navigate]);
+    }, [walletAddress, address, submitting, form, parsedAmount, taxBps, network, navigate]);
 
     const inputCls = 'w-full px-4 py-2.5 bg-[var(--paper-bg)] border border-[var(--border-paper)] rounded-lg text-[var(--ink-dark)] placeholder:text-[var(--ink-light)] focus:outline-none focus:border-[var(--accent-gold)] focus:ring-1 focus:ring-[var(--accent-gold)] transition-colors';
     const labelCls = 'block text-sm font-serif font-medium text-[var(--ink-dark)] mb-1.5';

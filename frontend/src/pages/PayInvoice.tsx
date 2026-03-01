@@ -17,7 +17,7 @@ type StepStatus = 'waiting' | 'processing' | 'done' | 'error';
 
 export function PayInvoice(): React.JSX.Element {
     const { id } = useParams<{ id: string }>();
-    const { walletAddress, openConnectModal } = useWalletConnect();
+    const { walletAddress, address, openConnectModal } = useWalletConnect();
     const { network } = useNetwork();
 
     const [invoice, setInvoice] = useState<InvoiceData | null>(null);
@@ -66,7 +66,7 @@ export function PayInvoice(): React.JSX.Element {
         setApproveStatus('processing');
 
         try {
-            const tokenContract = contractService.getTokenContract(invoice.token, network, walletAddress);
+            const tokenContract = contractService.getTokenContract(invoice.token, network, address ?? undefined);
             const blockbillContract = contractService.getBlockBillContract(network);
             const rawAddr = blockbillContract.address;
             if (!rawAddr) throw new Error('BlockBill contract address not found');
@@ -84,14 +84,14 @@ export function PayInvoice(): React.JSX.Element {
             setApproveStatus('error');
             toast.error(err instanceof Error ? err.message : 'Approval failed');
         }
-    }, [walletAddress, invoice, network]);
+    }, [walletAddress, address, invoice, network]);
 
     const handlePay = useCallback(async () => {
         if (!walletAddress || !id) return;
         setPayStatus('processing');
 
         try {
-            const contract = contractService.getBlockBillContract(network, walletAddress);
+            const contract = contractService.getBlockBillContract(network, address ?? undefined);
             const sim = await contract.payInvoice(BigInt(id));
             await sim.sendTransaction({
                 signer: null, mldsaSigner: null,
@@ -105,7 +105,7 @@ export function PayInvoice(): React.JSX.Element {
             setPayStatus('error');
             toast.error(err instanceof Error ? err.message : 'Payment failed');
         }
-    }, [walletAddress, id, network]);
+    }, [walletAddress, address, id, network]);
 
     if (loading) {
         return (

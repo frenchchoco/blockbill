@@ -25,9 +25,18 @@ const MOTO_TOKEN_TESTNET: TokenInfo = {
     icon: '\uD83C\uDFCD',
 };
 
+const BLOCK_TOKEN_TESTNET: TokenInfo = {
+    address: 'opt1sqp0tgh4tvm254e4pwgcmyf7xu3yxn9vkvgznf2c7',
+    symbol: 'BLOCK',
+    name: 'BLOCK Token',
+    decimals: 8,
+    icon: '\uD83E\uDDF1',
+};
+
 const TESTNET_TOKENS: readonly TokenInfo[] = [
     BTC_TOKEN,
     MOTO_TOKEN_TESTNET,
+    BLOCK_TOKEN_TESTNET,
 ];
 
 const REGTEST_TOKENS: readonly TokenInfo[] = [
