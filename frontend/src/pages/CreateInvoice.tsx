@@ -37,7 +37,6 @@ interface InvoiceFormData {
     readonly recipient: string;
     readonly memo: string;
     readonly deadline: string;
-    readonly taxPercent: string;
     readonly lineItems: readonly FormLineItem[];
 }
 
@@ -47,7 +46,6 @@ const INITIAL_FORM: InvoiceFormData = {
     recipient: '',
     memo: '',
     deadline: '',
-    taxPercent: '',
     lineItems: [],
 };
 
@@ -104,8 +102,6 @@ export function CreateInvoice(): React.JSX.Element {
             lineItems: prev.lineItems.map((item, i) => i === index ? { ...item, [field]: value } : item),
         }));
     }, []);
-
-    const taxBps = useMemo(() => Math.round(parseFloat(form.taxPercent || '0') * 100), [form.taxPercent]);
 
     const parsedAmount = useMemo(
         () => parseTokenAmount(form.totalAmount || '0', decimals),
@@ -201,7 +197,7 @@ export function CreateInvoice(): React.JSX.Element {
             // Step 1: Simulate
             const simulation = await contract.createInvoice(
                 tokenAddr, parsedAmount, recipientAddr, form.memo || '',
-                BigInt(form.deadline || '0'), taxBps, 0,
+                BigInt(form.deadline || '0'), 0, 0,
             );
 
             // Step 2: Check revert
@@ -253,7 +249,7 @@ export function CreateInvoice(): React.JSX.Element {
         } finally {
             setSubmitting(false);
         }
-    }, [walletAddress, address, submitting, form, parsedAmount, lineItemsTotal, taxBps, network, navigate, customToken, tokenValidation, recipientValidation]);
+    }, [walletAddress, address, submitting, form, parsedAmount, lineItemsTotal, network, navigate, customToken, tokenValidation, recipientValidation]);
 
     const inputCls = 'w-full px-4 py-2.5 bg-[var(--paper-bg)] border border-[var(--border-paper)] rounded-lg text-[var(--ink-dark)] placeholder:text-[var(--ink-light)] focus:outline-none focus:border-[var(--accent-gold)] focus:ring-1 focus:ring-[var(--accent-gold)] transition-colors';
     const labelCls = 'block text-sm font-serif font-medium text-[var(--ink-dark)] mb-1.5';
@@ -420,14 +416,7 @@ export function CreateInvoice(): React.JSX.Element {
                                                 onChange={(e) => updateField('deadline', e.target.value)}
                                                 placeholder="No deadline" min="0" className={inputCls} />
                                         </div>
-                                        <div>
-                                            <label htmlFor="taxPercent" className={labelCls}>
-                                                Tax Rate <span className="text-xs font-normal text-[var(--ink-light)]">%</span>
-                                            </label>
-                                            <input id="taxPercent" type="number" value={form.taxPercent}
-                                                onChange={(e) => updateField('taxPercent', e.target.value)}
-                                                placeholder="0" min="0" max="100" step="0.01" className={inputCls} />
-                                        </div>
+                                        <div />
                                     </div>
                                     {/* Line Items */}
                                     <div className="space-y-3">
@@ -514,12 +503,6 @@ export function CreateInvoice(): React.JSX.Element {
                             {form.memo && (
                                 <div className="mb-4 p-3 bg-[var(--paper-bg)] border border-[var(--border-paper)] rounded">
                                     <p className="text-xs text-[var(--ink-medium)] italic leading-relaxed">&ldquo;{form.memo}&rdquo;</p>
-                                </div>
-                            )}
-                            {taxBps > 0 && (
-                                <div className="flex justify-between text-sm mb-2">
-                                    <span className="text-[var(--ink-light)]">Tax</span>
-                                    <span className="font-mono text-[var(--ink-dark)]">{(taxBps / 100).toFixed(taxBps % 100 === 0 ? 0 : 2)}%</span>
                                 </div>
                             )}
                             {form.lineItems.length > 0 && (

@@ -23,59 +23,64 @@ export function InvoiceView(): React.JSX.Element {
     const [qrDataUrl, setQrDataUrl] = useState('');
     const [onChainDecimals, setOnChainDecimals] = useState<number | null>(null);
 
-    useEffect(() => {
+    const fetchInvoice = useCallback(async (showLoading = true): Promise<void> => {
         if (!id) return;
-        setLoading(true);
-        setError('');
+        if (showLoading) { setLoading(true); setError(''); }
 
-        const fetchInvoice = async (): Promise<void> => {
-            try {
-                const contract = contractService.getBlockBillContract(network);
-                const result = await contract.getInvoice(BigInt(id));
-                if (!result?.properties) { setError('Invoice not found'); return; }
+        try {
+            const contract = contractService.getBlockBillContract(network);
+            const result = await contract.getInvoice(BigInt(id));
+            if (!result?.properties) { setError('Invoice not found'); return; }
 
-                const p = result.properties;
-                const inv: InvoiceData = {
-                    id: BigInt(id),
-                    creator: (p.creator as Address)?.toHex() ?? '',
-                    token: (p.token as Address)?.toHex() ?? '',
-                    totalAmount: p.totalAmount ?? 0n,
-                    recipient: (p.recipient as Address)?.toHex() ?? '',
-                    memo: p.memo ?? '',
-                    deadline: p.deadline ?? 0n,
-                    taxBps: p.taxBps ?? 0,
-                    status: (p.status ?? 0) as InvoiceStatus,
-                    paidBy: (p.paidBy as Address)?.toHex() ?? '',
-                    paidAtBlock: p.paidAtBlock ?? 0n,
-                    createdAtBlock: p.createdAtBlock ?? 0n,
-                    btcTxHash: p.btcTxHash ?? '',
-                    lineItemCount: p.lineItemCount ?? 0,
-                };
-                setInvoice(inv);
+            const p = result.properties;
+            const inv: InvoiceData = {
+                id: BigInt(id),
+                creator: (p.creator as Address)?.toHex() ?? '',
+                token: (p.token as Address)?.toHex() ?? '',
+                totalAmount: p.totalAmount ?? 0n,
+                recipient: (p.recipient as Address)?.toHex() ?? '',
+                memo: p.memo ?? '',
+                deadline: p.deadline ?? 0n,
+                taxBps: p.taxBps ?? 0,
+                status: (p.status ?? 0) as InvoiceStatus,
+                paidBy: (p.paidBy as Address)?.toHex() ?? '',
+                paidAtBlock: p.paidAtBlock ?? 0n,
+                createdAtBlock: p.createdAtBlock ?? 0n,
+                btcTxHash: p.btcTxHash ?? '',
+                lineItemCount: p.lineItemCount ?? 0,
+            };
+            setInvoice(inv);
 
-                if (inv.lineItemCount > 0) {
-                    try {
-                        const liResult = await contract.getLineItems(BigInt(id));
-                        if (liResult?.properties) {
-                            const items: LineItem[] = [];
-                            const descs = Array.isArray(liResult.properties.descriptions) ? liResult.properties.descriptions : [liResult.properties.descriptions];
-                            const amounts = Array.isArray(liResult.properties.amounts) ? liResult.properties.amounts : [liResult.properties.amounts];
-                            for (let i = 0; i < inv.lineItemCount; i++) {
-                                items.push({ description: descs[i]?.toString() ?? `Item ${i + 1}`, amount: amounts[i] ?? 0n });
-                            }
-                            setLineItems(items);
+            if (inv.lineItemCount > 0) {
+                try {
+                    const liResult = await contract.getLineItems(BigInt(id));
+                    if (liResult?.properties) {
+                        const items: LineItem[] = [];
+                        const descs = Array.isArray(liResult.properties.descriptions) ? liResult.properties.descriptions : [liResult.properties.descriptions];
+                        const amounts = Array.isArray(liResult.properties.amounts) ? liResult.properties.amounts : [liResult.properties.amounts];
+                        for (let i = 0; i < inv.lineItemCount; i++) {
+                            items.push({ description: descs[i]?.toString() ?? `Item ${i + 1}`, amount: amounts[i] ?? 0n });
                         }
-                    } catch { /* line items non-critical */ }
-                }
-            } catch (err: unknown) {
-                const msg = err instanceof Error ? err.message : String(err);
-                setError(msg.includes('unreachable') ? 'Invoice not found' : msg);
-            } finally {
-                setLoading(false);
+                        setLineItems(items);
+                    }
+                } catch { /* line items non-critical */ }
             }
-        };
-        void fetchInvoice();
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            setError(msg.includes('unreachable') ? 'Invoice not found' : msg);
+        } finally {
+            setLoading(false);
+        }
     }, [id, network]);
+
+    useEffect(() => { void fetchInvoice(); }, [fetchInvoice]);
+
+    // Auto-refresh every 30s while invoice is pending
+    useEffect(() => {
+        if (!invoice || invoice.status !== InvoiceStatus.Pending) return;
+        const interval = setInterval(() => void fetchInvoice(false), 30_000);
+        return () => clearInterval(interval);
+    }, [invoice?.status, fetchInvoice]);
 
     // Fetch on-chain decimals for the invoice token
     useEffect(() => {
@@ -178,10 +183,6 @@ export function InvoiceView(): React.JSX.Element {
                         <span className="font-mono text-[var(--ink-dark)] text-right font-bold text-lg">
                             {formatTokenAmount(invoice.totalAmount, decimals)}
                         </span>
-                        {invoice.taxBps > 0 && (<>
-                            <span className="text-[var(--ink-light)]">Tax</span>
-                            <span className="font-mono text-[var(--ink-dark)] text-right">{invoice.taxBps / 100}%</span>
-                        </>)}
                         {invoice.deadline > 0n && (<>
                             <span className="text-[var(--ink-light)]">Deadline</span>
                             <span className="font-mono text-[var(--ink-dark)] text-right">Block #{invoice.deadline.toString()}</span>
