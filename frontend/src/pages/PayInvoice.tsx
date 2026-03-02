@@ -225,7 +225,7 @@ export function PayInvoice(): React.JSX.Element {
 
     return (
         <>
-        {showSeal && <SealAnimation confirmed={sealConfirmed} onComplete={() => navigate(`/invoice/${id}`)} />}
+        {showSeal && <SealAnimation confirmed={sealConfirmed} onComplete={() => navigate(`/invoice/${id}`)} autoConfirmDelay={0} />}
         <div className="max-w-2xl mx-auto">
             <PaperCard className="relative">
                 <div className="flex items-start justify-between mb-8 pb-6 border-b border-[var(--border-paper)]">

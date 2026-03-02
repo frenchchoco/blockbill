@@ -12,8 +12,10 @@ interface SealAnimationProps {
     readonly confirmedTitle?: string;
     /** Subtitle shown after confirmation */
     readonly confirmedSubtitle?: string;
-    /** Auto-confirm after this many ms if confirmed prop never becomes true (default: 6000) */
+    /** Auto-confirm after this many ms (default: 6000). Set to 0 to disable auto-confirm. */
     readonly autoConfirmDelay?: number;
+    /** Delay before showing the "Continue" link (default: 5000) */
+    readonly continueDelay?: number;
 }
 
 type Phase = 'enter' | 'waiting' | 'stamp' | 'settle' | 'done';
@@ -26,9 +28,11 @@ export function SealAnimation({
     confirmedTitle = 'Payment Confirmed',
     confirmedSubtitle = 'Recorded on Bitcoin L1',
     autoConfirmDelay = 6000,
+    continueDelay = 5000,
 }: SealAnimationProps): React.JSX.Element {
     const [phase, setPhase] = useState<Phase>('enter');
     const [autoConfirmed, setAutoConfirmed] = useState(false);
+    const [showContinue, setShowContinue] = useState(false);
     const onCompleteRef = useRef(onComplete);
     onCompleteRef.current = onComplete;
 
@@ -40,12 +44,19 @@ export function SealAnimation({
         return () => clearTimeout(t);
     }, []);
 
-    // Auto-confirm after delay if polling never confirms
+    // Auto-confirm after delay (disabled when autoConfirmDelay = 0)
     useEffect(() => {
-        if (confirmed || phase !== 'waiting') return;
+        if (confirmed || autoConfirmDelay <= 0 || phase !== 'waiting') return;
         const t = setTimeout(() => setAutoConfirmed(true), autoConfirmDelay);
         return () => clearTimeout(t);
     }, [confirmed, phase, autoConfirmDelay]);
+
+    // Show "Continue" link after delay when auto-confirm is disabled
+    useEffect(() => {
+        if (phase !== 'waiting' || autoConfirmDelay > 0) return;
+        const t = setTimeout(() => setShowContinue(true), continueDelay);
+        return () => clearTimeout(t);
+    }, [phase, autoConfirmDelay, continueDelay]);
 
     // Phase 2: when confirmed (or auto-confirmed), stamp
     useEffect(() => {
@@ -161,6 +172,12 @@ export function SealAnimation({
                                 <span className="inline-block w-3 h-3 border border-[#FFFEF7]/40 border-t-transparent rounded-full animate-spin" />
                                 Waiting for block confirmation...
                             </p>
+                            {showContinue && (
+                                <button type="button" onClick={() => onCompleteRef.current()}
+                                    className="mt-4 text-sm text-[#FFFEF7]/60 hover:text-[#FFFEF7] transition-colors underline underline-offset-4 animate-[sealFadeIn_0.4s_ease-out]">
+                                    Continue without waiting &rarr;
+                                </button>
+                            )}
                         </>
                     )}
                 </div>
