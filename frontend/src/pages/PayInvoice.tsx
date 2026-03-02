@@ -33,6 +33,7 @@ export function PayInvoice(): React.JSX.Element {
     const [showSeal, setShowSeal] = useState(false);
     const [sealConfirmed, setSealConfirmed] = useState(false);
     const [onChainDecimals, setOnChainDecimals] = useState<number | null>(null);
+    const [unlimitedApproval, setUnlimitedApproval] = useState(true);
 
     useEffect(() => {
         if (!id) return;
@@ -111,7 +112,7 @@ export function PayInvoice(): React.JSX.Element {
         setApproveStatus('processing');
 
         try {
-            await approveToken(invoice.token, invoice.totalAmount);
+            await approveToken(invoice.token, unlimitedApproval ? undefined : invoice.totalAmount);
 
             toast.dismiss('approve-confirm');
             setApproveStatus('done');
@@ -274,6 +275,14 @@ export function PayInvoice(): React.JSX.Element {
                                 <p className="text-xs text-[var(--ink-light)]">
                                     {approveStatus === 'done' ? 'Wait ~10 min for next block before paying' : 'Allow BlockBill contract to transfer tokens'}
                                 </p>
+                                {approveStatus !== 'done' && (
+                                    <label className="flex items-center gap-1.5 mt-1.5 cursor-pointer">
+                                        <input type="checkbox" checked={unlimitedApproval}
+                                            onChange={(e) => setUnlimitedApproval(e.target.checked)}
+                                            className="w-3.5 h-3.5 accent-[var(--accent-gold)] cursor-pointer" />
+                                        <span className="text-xs text-[var(--ink-light)]">Unlimited approval</span>
+                                    </label>
+                                )}
                             </div>
                             <button type="button" onClick={() => void handleApprove()}
                                 disabled={approveStatus === 'done' || approveStatus === 'processing'}
