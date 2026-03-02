@@ -8,6 +8,7 @@ import { StampBadge } from '../components/common/StampBadge';
 import { SealAnimation } from '../components/common/SealAnimation';
 import { InvoiceStatus } from '../types/invoice';
 import { useNetwork } from '../hooks/useNetwork';
+import { useBlockNumber } from '../hooks/useBlockNumber';
 import { useAddressValidation } from '../hooks/useAddressValidation';
 import { contractService } from '../services/ContractService';
 import { providerService } from '../services/ProviderService';
@@ -40,11 +41,22 @@ const INITIAL_FORM: InvoiceFormData = {
 
 const MAX_LINE_ITEMS = 10;
 
+type DeadlinePreset = '1d' | '1w' | '1m' | '1y' | 'custom' | 'none';
+
+const DEADLINE_PRESETS: readonly { key: DeadlinePreset; label: string; blocks: number }[] = [
+    { key: '1d', label: '1 Day', blocks: 144 },
+    { key: '1w', label: '1 Week', blocks: 1_008 },
+    { key: '1m', label: '1 Month', blocks: 4_320 },
+    { key: '1y', label: '1 Year', blocks: 52_560 },
+];
+
 export function CreateInvoice(): React.JSX.Element {
     const { walletAddress, address } = useWalletConnect();
     const { network } = useNetwork();
+    const currentBlock = useBlockNumber();
     const navigate = useNavigate();
     const [form, setForm] = useState<InvoiceFormData>(INITIAL_FORM);
+    const [deadlinePreset, setDeadlinePreset] = useState<DeadlinePreset>('1m');
     const [showDetails, setShowDetails] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [customToken, setCustomToken] = useState(false);
@@ -101,6 +113,14 @@ export function CreateInvoice(): React.JSX.Element {
     const lineItemsTotal = useMemo(() => {
         return form.lineItems.reduce((sum, item) => sum + parseTokenAmount(item.amount || '0', decimals), 0n);
     }, [form.lineItems, decimals]);
+
+    const computedDeadline = useMemo((): bigint => {
+        if (deadlinePreset === 'none') return 0n;
+        if (deadlinePreset === 'custom') return BigInt(form.deadline || '0');
+        const preset = DEADLINE_PRESETS.find(p => p.key === deadlinePreset);
+        if (!preset || currentBlock === 0n) return 0n;
+        return currentBlock + BigInt(preset.blocks);
+    }, [deadlinePreset, form.deadline, currentBlock]);
 
     // Validate custom addresses with AddressVerificator
     const tokenValidation = useAddressValidation(
@@ -187,7 +207,7 @@ export function CreateInvoice(): React.JSX.Element {
             // Step 1: Simulate
             const simulation = await contract.createInvoice(
                 tokenAddr, parsedAmount, recipientAddr, form.memo || '',
-                BigInt(form.deadline || '0'), 0, 0,
+                computedDeadline, 0, 0,
             );
 
             // Step 2: Check revert
@@ -408,16 +428,55 @@ export function CreateInvoice(): React.JSX.Element {
                                             rows={2} maxLength={200} className={inputCls + ' resize-none'} />
                                         <span className="text-xs text-[var(--ink-light)] mt-1 block text-right">{form.memo.length}/200</span>
                                     </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        <div>
-                                            <label htmlFor="deadline" className={labelCls}>
-                                                Deadline (block #) <span className="text-xs font-normal text-[var(--ink-light)]">optional</span>
-                                            </label>
+                                    <div>
+                                        <label className={labelCls}>Deadline</label>
+                                        <div className="flex flex-wrap gap-2 mb-2">
+                                            {DEADLINE_PRESETS.map((p) => (
+                                                <button key={p.key} type="button"
+                                                    onClick={() => setDeadlinePreset(p.key)}
+                                                    className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                                                        deadlinePreset === p.key
+                                                            ? 'bg-[var(--accent-gold)] text-white'
+                                                            : 'border border-[var(--border-paper)] text-[var(--ink-medium)] hover:border-[var(--accent-gold)]'
+                                                    }`}>
+                                                    {p.label}
+                                                </button>
+                                            ))}
+                                            <button type="button"
+                                                onClick={() => setDeadlinePreset('custom')}
+                                                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                                                    deadlinePreset === 'custom'
+                                                        ? 'bg-[var(--accent-gold)] text-white'
+                                                        : 'border border-[var(--border-paper)] text-[var(--ink-medium)] hover:border-[var(--accent-gold)]'
+                                                }`}>
+                                                Custom
+                                            </button>
+                                            <button type="button"
+                                                onClick={() => setDeadlinePreset('none')}
+                                                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                                                    deadlinePreset === 'none'
+                                                        ? 'bg-[var(--stamp-grey)] text-white'
+                                                        : 'border border-[var(--border-paper)] text-[var(--ink-light)] hover:border-[var(--stamp-grey)]'
+                                                }`}>
+                                                None
+                                            </button>
+                                        </div>
+                                        {deadlinePreset === 'custom' && (
                                             <input id="deadline" type="number" value={form.deadline}
                                                 onChange={(e) => updateField('deadline', e.target.value)}
-                                                placeholder="No deadline" min="0" className={inputCls} />
-                                        </div>
-                                        <div />
+                                                placeholder="Block number" min="0" className={inputCls + ' mb-2'} />
+                                        )}
+                                        {deadlinePreset !== 'none' && computedDeadline > 0n && (
+                                            <p className="text-xs text-[var(--ink-medium)] mt-1">
+                                                Expires at block <span className="font-mono font-medium">#{computedDeadline.toString()}</span>
+                                                {currentBlock > 0n && deadlinePreset !== 'custom' && (
+                                                    <span className="text-[var(--ink-light)]"> (current: #{currentBlock.toString()})</span>
+                                                )}
+                                            </p>
+                                        )}
+                                        <p className="text-xs text-[var(--ink-light)] italic mt-1">
+                                            Block times average ~10 min but vary. Deadlines are approximate, not exact.
+                                        </p>
                                     </div>
                                     {/* Line Items */}
                                     <div className="space-y-3">
@@ -501,6 +560,12 @@ export function CreateInvoice(): React.JSX.Element {
                                     {form.recipient ? formatAddress(form.recipient) : openInvoice ? 'Open Invoice' : 'Required'}
                                 </span>
                             </div>
+                            {computedDeadline > 0n && (
+                                <div className="flex justify-between text-sm mb-2">
+                                    <span className="text-[var(--ink-light)]">Deadline</span>
+                                    <span className="font-mono text-xs text-[var(--ink-dark)]">Block #{computedDeadline.toString()}</span>
+                                </div>
+                            )}
                             {form.memo && (
                                 <div className="mb-4 p-3 bg-[var(--paper-bg)] border border-[var(--border-paper)] rounded">
                                     <p className="text-xs text-[var(--ink-medium)] italic leading-relaxed">&ldquo;{form.memo}&rdquo;</p>

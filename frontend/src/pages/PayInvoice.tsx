@@ -4,9 +4,10 @@ import { useWalletConnect } from '@btc-vision/walletconnect';
 import toast from 'react-hot-toast';
 import { PaperCard } from '../components/common/PaperCard';
 import { StampBadge } from '../components/common/StampBadge';
-import { InvoiceStatus } from '../types/invoice';
+import { InvoiceStatus, isInvoiceExpired } from '../types/invoice';
 import type { InvoiceData } from '../types/invoice';
 import { useNetwork } from '../hooks/useNetwork';
+import { useBlockNumber } from '../hooks/useBlockNumber';
 import { useTokenApproval } from '../hooks/useTokenApproval';
 import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
@@ -22,6 +23,7 @@ export function PayInvoice(): React.JSX.Element {
     const { id } = useParams<{ id: string }>();
     const { walletAddress, address, openConnectModal } = useWalletConnect();
     const { network } = useNetwork();
+    const currentBlock = useBlockNumber();
 
     const [invoice, setInvoice] = useState<InvoiceData | null>(null);
     const [loading, setLoading] = useState(true);
@@ -186,12 +188,16 @@ export function PayInvoice(): React.JSX.Element {
         );
     }
 
-    if (invoice.status !== InvoiceStatus.Pending) {
+    const expired = currentBlock > 0n && isInvoiceExpired(invoice, currentBlock);
+
+    if (invoice.status !== InvoiceStatus.Pending || expired) {
         return (
             <div className="max-w-2xl mx-auto text-center py-20">
-                <StampBadge status={invoice.status} size="lg" />
+                <StampBadge status={invoice.status} size="lg" expired={expired} />
                 <p className="text-[var(--ink-medium)] mt-4 font-serif text-lg">
-                    This invoice is {invoice.status === InvoiceStatus.Paid ? 'already paid' : 'not payable'}.
+                    {expired ? 'This invoice has expired and can no longer be paid.'
+                        : invoice.status === InvoiceStatus.Paid ? 'This invoice is already paid.'
+                        : 'This invoice is not payable.'}
                 </p>
                 <Link to={`/invoice/${id}`} className="text-[var(--accent-gold)] hover:underline mt-4 inline-block">View Invoice</Link>
             </div>

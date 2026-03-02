@@ -3,9 +3,10 @@ import { InvoiceStatus, getStatusLabel, getStampClass } from '../../types/invoic
 interface StampBadgeProps {
     readonly status: InvoiceStatus;
     readonly size?: 'sm' | 'md' | 'lg';
+    readonly expired?: boolean;
 }
 
-export function StampBadge({ status, size = 'md' }: StampBadgeProps): React.JSX.Element {
+export function StampBadge({ status, size = 'md', expired }: StampBadgeProps): React.JSX.Element {
     const sizeClasses = {
         sm: 'text-xs px-2 py-0.5 border-2',
         md: 'text-sm px-3 py-1 border-3',
@@ -13,8 +14,8 @@ export function StampBadge({ status, size = 'md' }: StampBadgeProps): React.JSX.
     };
 
     return (
-        <span className={`${getStampClass(status)} ${sizeClasses[size]}`}>
-            {getStatusLabel(status)}
+        <span className={`${getStampClass(status, expired)} ${sizeClasses[size]}`}>
+            {getStatusLabel(status, expired)}
         </span>
     );
 }
