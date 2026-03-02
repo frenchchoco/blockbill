@@ -16,7 +16,7 @@ import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
 
 const FEE_BPS = 50n;
 
-type StepStatus = 'waiting' | 'processing' | 'done' | 'error';
+type StepStatus = 'waiting' | 'processing' | 'broadcast' | 'done' | 'error';
 
 export function PayInvoice(): React.JSX.Element {
     const { id } = useParams<{ id: string }>();
@@ -89,9 +89,11 @@ export function PayInvoice(): React.JSX.Element {
         return () => { cancelled = true; };
     }, [invoice?.token, network]);
 
-    // Check existing allowance on load — skip approve step if sufficient
+    // Check allowance on load and poll every 30s after broadcast
     useEffect(() => {
         if (!invoice || !address) return;
+        if (approveStatus === 'done' || approveStatus === 'processing') return;
+
         let cancelled = false;
         const check = async (): Promise<void> => {
             try {
@@ -100,12 +102,20 @@ export function PayInvoice(): React.JSX.Element {
                     setApproveStatus('done');
                 }
             } catch {
-                // allowance check failed, user will need to approve manually
+                // allowance check failed
             }
         };
+
         void check();
+
+        // Poll every 30s while waiting for broadcast confirmation
+        if (approveStatus === 'broadcast') {
+            const interval = setInterval(() => void check(), 30_000);
+            return () => { cancelled = true; clearInterval(interval); };
+        }
+
         return () => { cancelled = true; };
-    }, [invoice, address, checkAllowance]);
+    }, [invoice, address, checkAllowance, approveStatus]);
 
     const handleApprove = useCallback(async () => {
         if (!walletAddress || !invoice) return;
@@ -115,14 +125,14 @@ export function PayInvoice(): React.JSX.Element {
             await approveToken(invoice.token, unlimitedApproval ? undefined : invoice.totalAmount);
 
             toast.dismiss('approve-confirm');
-            setApproveStatus('done');
-            toast.success('Approval broadcast — wait for next block before paying');
+            setApproveStatus('broadcast');
+            toast.success('Approval broadcast — waiting for block confirmation');
         } catch (err: unknown) {
             toast.dismiss('approve-confirm');
             setApproveStatus('error');
             toast.error(err instanceof Error ? err.message : 'Approval failed');
         }
-    }, [walletAddress, invoice, approveToken, network]);
+    }, [walletAddress, invoice, approveToken, unlimitedApproval, network]);
 
     const handlePay = useCallback(async () => {
         if (!walletAddress || !id) return;
@@ -260,12 +270,13 @@ export function PayInvoice(): React.JSX.Element {
                         {/* Step 1: Approve */}
                         <div className={`flex items-center gap-4 p-4 rounded-lg border transition-all ${
                             approveStatus === 'done' ? 'bg-[var(--stamp-green)]/5 border-[var(--stamp-green)]'
+                            : approveStatus === 'broadcast' ? 'bg-[var(--accent-gold)]/5 border-[var(--accent-gold)]'
                             : approveStatus === 'error' ? 'bg-[var(--stamp-red)]/5 border-[var(--stamp-red)]'
                             : 'bg-[var(--paper-bg)] border-[var(--border-paper)]'
                         }`}>
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
                                 approveStatus === 'done' ? 'bg-[var(--stamp-green)] text-white'
-                                : approveStatus === 'processing' ? 'bg-[var(--accent-gold)] text-white animate-pulse'
+                                : approveStatus === 'processing' || approveStatus === 'broadcast' ? 'bg-[var(--accent-gold)] text-white animate-pulse'
                                 : 'bg-[var(--paper-card-dark)] text-[var(--ink-medium)]'
                             }`}>
                                 {approveStatus === 'done' ? '\u2713' : '1'}
@@ -273,9 +284,11 @@ export function PayInvoice(): React.JSX.Element {
                             <div className="flex-1">
                                 <p className="text-sm font-medium text-[var(--ink-dark)]">Approve Token Spend</p>
                                 <p className="text-xs text-[var(--ink-light)]">
-                                    {approveStatus === 'done' ? 'Wait ~10 min for next block before paying' : 'Allow BlockBill contract to transfer tokens'}
+                                    {approveStatus === 'done' ? 'Allowance confirmed on-chain'
+                                        : approveStatus === 'broadcast' ? 'Waiting for block confirmation (~10 min)...'
+                                        : 'Allow BlockBill contract to transfer tokens'}
                                 </p>
-                                {approveStatus !== 'done' && (
+                                {approveStatus !== 'done' && approveStatus !== 'broadcast' && (
                                     <label className="flex items-center gap-1.5 mt-1.5 cursor-pointer">
                                         <input type="checkbox" checked={unlimitedApproval}
                                             onChange={(e) => setUnlimitedApproval(e.target.checked)}
@@ -285,9 +298,11 @@ export function PayInvoice(): React.JSX.Element {
                                 )}
                             </div>
                             <button type="button" onClick={() => void handleApprove()}
-                                disabled={approveStatus === 'done' || approveStatus === 'processing'}
+                                disabled={approveStatus === 'done' || approveStatus === 'processing' || approveStatus === 'broadcast'}
                                 className="px-5 py-2.5 bg-[var(--accent-gold)] text-white text-sm font-medium rounded-lg hover:bg-[var(--accent-gold-light)] disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95">
-                                {approveStatus === 'processing' ? 'Confirming...' : approveStatus === 'done' ? 'Confirmed' : approveStatus === 'error' ? 'Retry' : 'Approve'}
+                                {approveStatus === 'processing' ? 'Sending...'
+                                    : approveStatus === 'broadcast' ? 'Pending...'
+                                    : approveStatus === 'done' ? 'Approved' : approveStatus === 'error' ? 'Retry' : 'Approve'}
                             </button>
                         </div>
 
