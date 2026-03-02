@@ -7621,7 +7621,18 @@
   end
   local.get $3
   i32.load offset=4
-  local.tee $3
+  local.set $3
+  local.get $1
+  i32.const 20
+  i32.sub
+  i32.load offset=16
+  i32.const 1
+  i32.shr_u
+  i32.eqz
+  if
+   unreachable
+  end
+  local.get $3
   local.get $0
   i32.load16_u offset=22
   local.get $2
@@ -8006,7 +8017,7 @@
   i64.load
   i32.wrap_i64
   local.set $0
-  i32.const 500
+  i32.const 700
   call $~lib/@btc-vision/btc-runtime/runtime/buffer/BytesWriter/BytesWriter#constructor
   local.tee $12
   local.get $13
@@ -8120,7 +8131,7 @@
     end
     call $~lib/@btc-vision/btc-runtime/runtime/types/SafeMath/SafeMath.add
     local.set $6
-    block $__inlined_func$src/BlockBillContract/BlockBillContract#loadShortString$113 (result i32)
+    block $__inlined_func$src/BlockBillContract/BlockBillContract#loadShortString$114 (result i32)
      local.get $0
      i32.load16_u offset=48
      local.set $7
@@ -8149,7 +8160,7 @@
      i32.wrap_i64
      local.tee $8
      i32.eqz
-     br_if $__inlined_func$src/BlockBillContract/BlockBillContract#loadShortString$113
+     br_if $__inlined_func$src/BlockBillContract/BlockBillContract#loadShortString$114
      drop
      local.get $7
      local.get $9

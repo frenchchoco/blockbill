@@ -33,6 +33,11 @@ export function PayInvoice(): React.JSX.Element {
     const [unlimitedApproval, setUnlimitedApproval] = useState(false);
     const payingRef = useRef(false);
 
+    // Reset payingRef on unmount to prevent stale lock
+    useEffect(() => {
+        return () => { payingRef.current = false; };
+    }, []);
+
     useEffect(() => {
         if (!id || !/^\d+$/.test(id)) { setError('Invalid invoice ID'); setLoading(false); return; }
         setLoading(true);
@@ -189,6 +194,22 @@ export function PayInvoice(): React.JSX.Element {
                     This invoice is {invoice.status === InvoiceStatus.Paid ? 'already paid' : 'not payable'}.
                 </p>
                 <Link to={`/invoice/${id}`} className="text-[var(--accent-gold)] hover:underline mt-4 inline-block">View Invoice</Link>
+            </div>
+        );
+    }
+
+    // Check if the connected wallet is the invoice creator
+    const normalizeHex = (h: string): string => h.replace(/^0x/i, '').toLowerCase();
+    const walletHex = address ? normalizeHex(address.toHex()) : '';
+    const isCreator = walletHex !== '' && normalizeHex(invoice.creator) === walletHex;
+
+    if (isCreator) {
+        return (
+            <div className="max-w-2xl mx-auto text-center py-20">
+                <PaperCard>
+                    <p className="text-lg text-[var(--ink-medium)] font-serif mb-4">You cannot pay your own invoice.</p>
+                    <Link to={`/invoice/${id}`} className="text-[var(--accent-gold)] hover:underline">View Invoice</Link>
+                </PaperCard>
             </div>
         );
     }

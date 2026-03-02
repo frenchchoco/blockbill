@@ -7,7 +7,7 @@ import { InvoiceStatus } from '../types/invoice';
 import type { InvoiceData, LineItem } from '../types/invoice';
 import { useNetwork } from '../hooks/useNetwork';
 import { contractService } from '../services/ContractService';
-import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
+import { findToken, formatTokenAmount, formatAddress, formatRecipient } from '../config/tokens';
 import { parseInvoiceProperties } from '../utils/invoice';
 
 export function Receipt(): React.JSX.Element {
@@ -18,9 +18,10 @@ export function Receipt(): React.JSX.Element {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [qrDataUrl, setQrDataUrl] = useState('');
+    const [onChainDecimals, setOnChainDecimals] = useState<number | null>(null);
 
     useEffect(() => {
-        if (!id) return;
+        if (!id || !/^\d+$/.test(id)) { setError('Invalid invoice ID'); setLoading(false); return; }
         setLoading(true);
 
         const fetchInvoice = async (): Promise<void> => {
@@ -55,6 +56,25 @@ export function Receipt(): React.JSX.Element {
         };
         void fetchInvoice();
     }, [id, network]);
+
+    // Fetch on-chain decimals for the invoice token
+    useEffect(() => {
+        if (!invoice?.token) return;
+        let cancelled = false;
+        const fetchDec = async (): Promise<void> => {
+            try {
+                const tokenContract = contractService.getTokenContract(invoice.token, network);
+                const metadata = await tokenContract.metadata();
+                if (!cancelled && metadata?.properties?.decimals != null) {
+                    setOnChainDecimals(metadata.properties.decimals);
+                }
+            } catch {
+                // fallback to config decimals
+            }
+        };
+        void fetchDec();
+        return () => { cancelled = true; };
+    }, [invoice?.token, network]);
 
     useEffect(() => {
         const url = window.location.href.replace('/receipt', '');
@@ -97,7 +117,7 @@ export function Receipt(): React.JSX.Element {
     }
 
     const token = findToken(invoice.token, network);
-    const decimals = token?.decimals ?? 8;
+    const decimals = onChainDecimals ?? token?.decimals ?? 8;
 
     return (
         <>
@@ -135,7 +155,7 @@ export function Receipt(): React.JSX.Element {
                         <div>
                             <p className="text-xs uppercase tracking-wider text-[var(--ink-light)] font-medium mb-1">To</p>
                             <p className="font-mono text-sm text-[var(--ink-dark)] break-all">
-                                {invoice.recipient ? formatAddress(invoice.recipient) : 'Open Invoice'}
+                                {formatRecipient(invoice.recipient)}
                             </p>
                         </div>
                     </div>

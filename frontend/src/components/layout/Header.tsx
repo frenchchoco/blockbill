@@ -47,10 +47,15 @@ export function Header(): React.JSX.Element {
                             </button>
                         </div>
                     ) : (
-                        <button type="button" onClick={openConnectModal}
-                            className="bg-[var(--accent-gold)] text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-[var(--accent-gold-light)] transition-colors shadow-sm">
-                            Connect Wallet
-                        </button>
+                        <div className="flex items-center gap-3">
+                            <span className="text-[10px] bg-[var(--ink-light)] text-white px-2 py-0.5 rounded-full uppercase tracking-wider font-medium">
+                                {getNetworkName(network)}
+                            </span>
+                            <button type="button" onClick={openConnectModal}
+                                className="bg-[var(--accent-gold)] text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-[var(--accent-gold-light)] transition-colors shadow-sm">
+                                Connect Wallet
+                            </button>
+                        </div>
                     )}
                 </div>
 

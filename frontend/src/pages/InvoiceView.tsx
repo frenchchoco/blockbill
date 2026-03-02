@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useWalletConnect } from '@btc-vision/walletconnect';
+import toast from 'react-hot-toast';
 import QRCode from 'qrcode';
 import { PaperCard } from '../components/common/PaperCard';
 import { StampBadge } from '../components/common/StampBadge';
@@ -8,8 +9,9 @@ import { InvoiceStatus } from '../types/invoice';
 import type { InvoiceData, LineItem } from '../types/invoice';
 import { useNetwork } from '../hooks/useNetwork';
 import { contractService } from '../services/ContractService';
-import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
+import { findToken, formatTokenAmount, formatAddress, formatRecipient } from '../config/tokens';
 import { parseInvoiceProperties } from '../utils/invoice';
+import { friendlyError } from '../utils/errors';
 
 export function InvoiceView(): React.JSX.Element {
     const { id } = useParams<{ id: string }>();
@@ -22,6 +24,7 @@ export function InvoiceView(): React.JSX.Element {
     const [copied, setCopied] = useState(false);
     const [qrDataUrl, setQrDataUrl] = useState('');
     const [onChainDecimals, setOnChainDecimals] = useState<number | null>(null);
+    const [cancelling, setCancelling] = useState(false);
 
     const fetchInvoice = useCallback(async (showLoading = true): Promise<void> => {
         if (!id || !/^\d+$/.test(id)) { setError('Invalid invoice ID'); setLoading(false); return; }
@@ -91,6 +94,23 @@ export function InvoiceView(): React.JSX.Element {
             .then(setQrDataUrl).catch(() => {});
     }, [id]);
 
+    const handleCancel = useCallback(async () => {
+        if (!address || !id || cancelling) return;
+        setCancelling(true);
+        try {
+            const contract = contractService.getBlockBillContract(network, address);
+            const simulation = await contract.cancelInvoice(BigInt(id));
+            if (simulation.revert) throw new Error(friendlyError(simulation.revert));
+            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: address.toHex(), maximumAllowedSatToSpend: 100_000n, network });
+            toast.success('Cancellation broadcast — will confirm in ~10 min');
+            void fetchInvoice(false);
+        } catch (err: unknown) {
+            toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
+        } finally {
+            setCancelling(false);
+        }
+    }, [address, id, cancelling, network, fetchInvoice]);
+
     const handleCopyLink = useCallback(() => {
         void navigator.clipboard.writeText(window.location.href).then(() => {
             setCopied(true);
@@ -143,7 +163,7 @@ export function InvoiceView(): React.JSX.Element {
                     <div>
                         <p className="text-xs uppercase tracking-wider text-[var(--ink-light)] font-medium mb-1">To</p>
                         <p className="font-mono text-sm text-[var(--ink-dark)] break-all">
-                            {invoice.recipient ? formatAddress(invoice.recipient) : 'Open Invoice'}
+                            {formatRecipient(invoice.recipient)}
                         </p>
                     </div>
                     {qrDataUrl && (
@@ -225,6 +245,12 @@ export function InvoiceView(): React.JSX.Element {
                         <Link to={`/pay/${id}`} className="flex-1 inline-flex items-center justify-center px-6 py-3 bg-[var(--accent-gold)] text-white font-medium rounded-lg hover:bg-[var(--accent-gold-light)] transition-colors shadow-md text-center">
                             Pay Invoice
                         </Link>
+                    )}
+                    {isCreator && invoice.status === InvoiceStatus.Pending && (
+                        <button type="button" onClick={() => void handleCancel()} disabled={cancelling}
+                            className="flex-1 inline-flex items-center justify-center px-6 py-3 border-2 border-[var(--stamp-red)] text-[var(--stamp-red)] font-medium rounded-lg hover:bg-[var(--stamp-red)] hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                            {cancelling ? 'Cancelling...' : 'Cancel Invoice'}
+                        </button>
                     )}
                     {isPaid && (
                         <Link to={`/invoice/${id}/receipt`} className="flex-1 inline-flex items-center justify-center px-6 py-3 bg-[var(--stamp-green)] text-white font-medium rounded-lg hover:opacity-90 transition-colors shadow-md text-center">

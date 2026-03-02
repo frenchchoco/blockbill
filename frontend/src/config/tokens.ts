@@ -75,7 +75,9 @@ export function formatTokenAmount(amount: bigint, decimals: number): string {
 
 export function parseTokenAmount(value: string, decimals: number): bigint {
     if (!value || value === '0') return 0n;
-    const parts = value.split('.');
+    const cleaned = value.replace(/^-/, '');
+    if (!cleaned || cleaned === '0') return 0n;
+    const parts = cleaned.split('.');
     const whole = BigInt(parts[0] || '0');
     const fracStr = (parts[1] || '').padEnd(decimals, '0').slice(0, decimals);
     const frac = BigInt(fracStr);
@@ -85,4 +87,14 @@ export function parseTokenAmount(value: string, decimals: number): bigint {
 export function formatAddress(addr: string): string {
     if (!addr || addr.length <= 16) return addr || '--';
     return `${addr.slice(0, 8)}\u2026${addr.slice(-6)}`;
+}
+
+/** Returns true if the address is a zero/dead address (all zeros after 0x prefix). */
+export function isZeroAddress(addr: string): boolean {
+    return !addr || /^(0x)?0+$/.test(addr);
+}
+
+/** Display-friendly recipient: shows 'Open Invoice' for zero/dead addresses. */
+export function formatRecipient(addr: string): string {
+    return isZeroAddress(addr) ? 'Open Invoice' : formatAddress(addr);
 }

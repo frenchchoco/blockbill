@@ -9,6 +9,7 @@ import { useNetwork } from '../hooks/useNetwork';
 import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
 import { parseInvoiceProperties } from '../utils/invoice';
+import { friendlyError } from '../utils/errors';
 
 type Tab = 'created' | 'received';
 type StatusFilter = 'all' | 'pending' | 'paid' | 'cancelled';
@@ -27,6 +28,7 @@ export function Dashboard(): React.JSX.Element {
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
     const [invoices, setInvoices] = useState<InvoiceData[]>([]);
     const [loading, setLoading] = useState(false);
+    const [fetchError, setFetchError] = useState('');
     const [totalCount, setTotalCount] = useState(0n);
     const [tokenDecimals, setTokenDecimals] = useState<Record<string, number>>({});
     const fetchedDecimalsRef = useRef<Set<string>>(new Set());
@@ -35,6 +37,7 @@ export function Dashboard(): React.JSX.Element {
     useEffect(() => {
         setInvoices([]);
         setTotalCount(0n);
+        setFetchError('');
         setTokenDecimals({});
         fetchedDecimalsRef.current.clear();
         contractService.clearCache();
@@ -43,28 +46,37 @@ export function Dashboard(): React.JSX.Element {
     const fetchInvoices = useCallback(async () => {
         if (!walletAddress || !address) return;
         setLoading(true);
+        setFetchError('');
 
         try {
             const contract = contractService.getBlockBillContract(network);
 
-            // Pass the wallet's Address object (not string) for ABI ADDRESS params
-            const result = activeTab === 'created'
+            // Get per-wallet count (for display) using index query
+            const indexResult = activeTab === 'created'
                 ? await contract.getInvoicesByCreator(address)
                 : await contract.getInvoicesByRecipient(address);
 
-            const count = result?.properties?.count ?? 0n;
-            setTotalCount(count);
+            const walletCount = indexResult?.properties?.count ?? 0n;
+            setTotalCount(walletCount);
 
-            if (count === 0n) {
+            if (walletCount === 0n) {
                 setInvoices([]);
                 return;
             }
 
-            // Fetch all invoices in parallel (Promise.all per OPNet guidelines)
-            const countNum = Math.min(Number(count), 50);
+            // Get global invoice count and scan all invoices
+            // (ABI only exposes count from index queries, not the actual IDs)
+            const globalResult = await contract.getInvoiceCount();
+            const globalCount = Math.min(Number(globalResult?.properties?.count ?? 0n), 200);
+
+            if (globalCount === 0) {
+                setInvoices([]);
+                return;
+            }
+
             const walletHex = address.toHex().toLowerCase();
 
-            const promises = Array.from({ length: countNum }, (_, i) =>
+            const promises = Array.from({ length: globalCount }, (_, i) =>
                 contract.getInvoice(BigInt(i + 1)).catch(() => null),
             );
             const results = await Promise.all(promises);
@@ -83,7 +95,8 @@ export function Dashboard(): React.JSX.Element {
             }
 
             setInvoices(fetchedInvoices);
-        } catch {
+        } catch (err: unknown) {
+            setFetchError(friendlyError(err instanceof Error ? err.message : String(err)));
             setInvoices([]);
         } finally {
             setLoading(false);
@@ -210,6 +223,13 @@ export function Dashboard(): React.JSX.Element {
                 <span className="text-xs text-[var(--ink-light)] self-center ml-2">
                     {totalCount.toString()} total
                 </span>
+                <button type="button" onClick={() => void fetchInvoices()} disabled={loading}
+                    title="Refresh"
+                    className="ml-1 p-1 text-[var(--ink-light)] hover:text-[var(--accent-gold)] transition-colors disabled:opacity-50">
+                    <svg xmlns="http://www.w3.org/2000/svg" className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                </button>
                 {filteredInvoices.length > 0 && (
                     <button type="button" onClick={exportCsv}
                         className="ml-auto text-xs text-[var(--accent-gold)] hover:text-[var(--accent-gold-light)] transition-colors flex items-center gap-1">
@@ -220,6 +240,17 @@ export function Dashboard(): React.JSX.Element {
                     </button>
                 )}
             </div>
+
+            {/* Error */}
+            {fetchError && (
+                <div className="mb-4 px-4 py-3 bg-[var(--stamp-red)]/5 border border-[var(--stamp-red)] rounded-lg flex items-center justify-between">
+                    <p className="text-sm text-[var(--stamp-red)]">{fetchError}</p>
+                    <button type="button" onClick={() => void fetchInvoices()}
+                        className="text-sm text-[var(--accent-gold)] hover:underline ml-4 shrink-0">
+                        Retry
+                    </button>
+                </div>
+            )}
 
             {/* Loading */}
             {loading ? (

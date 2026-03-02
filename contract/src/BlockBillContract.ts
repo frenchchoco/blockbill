@@ -255,6 +255,11 @@ export class BlockBillContract extends ReentrancyGuard {
         const btcTxHash: string = calldata.readStringWithLength();
         const caller: Address = Blockchain.tx.sender;
 
+        // Validate btcTxHash is not empty
+        if (btcTxHash.length == 0) {
+            throw new Revert('BTC tx hash required');
+        }
+
         // Verify caller is the creator
         const creator: Address = this.loadAddressAt(this.pCreator, invoiceId);
         if (!caller.equals(creator)) {
@@ -343,7 +348,8 @@ export class BlockBillContract extends ReentrancyGuard {
         const btcTxHash: string = this.loadLongString(this.pBtcTxHash, invoiceId);
         const lineItemCount: u16 = this.loadU16At(this.pLineItemCount, invoiceId);
 
-        const writer: BytesWriter = new BytesWriter(500);
+        // 4*32 (addresses) + 32 (amount) + 1 + 8 + 2 + 8 + 8 + ~226 (memo) + ~226 (txHash) + 2 = ~577
+        const writer: BytesWriter = new BytesWriter(700);
         writer.writeAddress(creator);
         writer.writeAddress(token);
         writer.writeU256(totalAmount);

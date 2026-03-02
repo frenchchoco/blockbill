@@ -41,3 +41,7 @@ export function getRpcUrl(network: Network): string {
 export function getNetworkName(network: Network): string {
     return NETWORK_CONFIGS[networkKey(network)]?.name ?? 'Unknown';
 }
+
+export function getExplorerUrl(network: Network): string {
+    return NETWORK_CONFIGS[networkKey(network)]?.explorerUrl ?? '';
+}
