@@ -32,6 +32,7 @@ export function PayInvoice(): React.JSX.Element {
     const [payStatus, setPayStatus] = useState<StepStatus>('waiting');
     const [showSeal, setShowSeal] = useState(false);
     const [sealConfirmed, setSealConfirmed] = useState(false);
+    const [onChainDecimals, setOnChainDecimals] = useState<number | null>(null);
 
     useEffect(() => {
         if (!id) return;
@@ -67,6 +68,25 @@ export function PayInvoice(): React.JSX.Element {
         };
         void fetchInvoice();
     }, [id, network]);
+
+    // Fetch on-chain decimals for the invoice token
+    useEffect(() => {
+        if (!invoice?.token) return;
+        let cancelled = false;
+        const fetchDec = async (): Promise<void> => {
+            try {
+                const tokenContract = contractService.getTokenContract(invoice.token, network);
+                const metadata = await tokenContract.metadata();
+                if (!cancelled && metadata?.properties?.decimals != null) {
+                    setOnChainDecimals(metadata.properties.decimals);
+                }
+            } catch {
+                // fallback to config decimals
+            }
+        };
+        void fetchDec();
+        return () => { cancelled = true; };
+    }, [invoice?.token, network]);
 
     // Check existing allowance on load — skip approve step if sufficient
     useEffect(() => {
@@ -188,7 +208,7 @@ export function PayInvoice(): React.JSX.Element {
     }
 
     const token = findToken(invoice.token, network);
-    const decimals = token?.decimals ?? 8;
+    const decimals = onChainDecimals ?? token?.decimals ?? 8;
     const feeAmount = (invoice.totalAmount * FEE_BPS) / 10000n;
     const creatorReceives = invoice.totalAmount - feeAmount;
 

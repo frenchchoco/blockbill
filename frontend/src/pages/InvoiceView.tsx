@@ -21,6 +21,7 @@ export function InvoiceView(): React.JSX.Element {
     const [error, setError] = useState('');
     const [copied, setCopied] = useState(false);
     const [qrDataUrl, setQrDataUrl] = useState('');
+    const [onChainDecimals, setOnChainDecimals] = useState<number | null>(null);
 
     useEffect(() => {
         if (!id) return;
@@ -76,6 +77,25 @@ export function InvoiceView(): React.JSX.Element {
         void fetchInvoice();
     }, [id, network]);
 
+    // Fetch on-chain decimals for the invoice token
+    useEffect(() => {
+        if (!invoice?.token) return;
+        let cancelled = false;
+        const fetchDec = async (): Promise<void> => {
+            try {
+                const tokenContract = contractService.getTokenContract(invoice.token, network);
+                const metadata = await tokenContract.metadata();
+                if (!cancelled && metadata?.properties?.decimals != null) {
+                    setOnChainDecimals(metadata.properties.decimals);
+                }
+            } catch {
+                // fallback to config decimals
+            }
+        };
+        void fetchDec();
+        return () => { cancelled = true; };
+    }, [invoice?.token, network]);
+
     useEffect(() => {
         const url = window.location.href;
         QRCode.toDataURL(url, { width: 160, margin: 2, color: { dark: '#3E2723', light: '#FFFEF7' } })
@@ -108,7 +128,7 @@ export function InvoiceView(): React.JSX.Element {
     }
 
     const token = findToken(invoice.token, network);
-    const decimals = token?.decimals ?? 8;
+    const decimals = onChainDecimals ?? token?.decimals ?? 8;
     const isPaid = invoice.status === InvoiceStatus.Paid;
     const normalizeHex = (h: string): string => h.replace(/^0x/i, '').toLowerCase();
     const walletHex = address ? normalizeHex(address.toHex()) : '';

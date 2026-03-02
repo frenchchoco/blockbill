@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useWalletConnect } from '@btc-vision/walletconnect';
 import { PaperCard } from '../components/common/PaperCard';
@@ -28,11 +28,15 @@ export function Dashboard(): React.JSX.Element {
     const [invoices, setInvoices] = useState<InvoiceData[]>([]);
     const [loading, setLoading] = useState(false);
     const [totalCount, setTotalCount] = useState(0n);
+    const [tokenDecimals, setTokenDecimals] = useState<Record<string, number>>({});
+    const fetchedDecimalsRef = useRef<Set<string>>(new Set());
 
     // Clear invoices immediately when wallet changes
     useEffect(() => {
         setInvoices([]);
         setTotalCount(0n);
+        setTokenDecimals({});
+        fetchedDecimalsRef.current.clear();
         contractService.clearCache();
     }, [walletAddress]);
 
@@ -107,6 +111,35 @@ export function Dashboard(): React.JSX.Element {
     useEffect(() => {
         void fetchInvoices();
     }, [fetchInvoices]);
+
+    // Fetch on-chain decimals for each unique token in the invoice list
+    useEffect(() => {
+        const uniqueTokens = [...new Set(invoices.map((inv) => inv.token))];
+        const toFetch = uniqueTokens.filter((t) => t && !fetchedDecimalsRef.current.has(t));
+        if (toFetch.length === 0) return;
+
+        let cancelled = false;
+        const fetchDecimals = async (): Promise<void> => {
+            const results: Record<string, number> = {};
+            await Promise.all(toFetch.map(async (tokenAddr) => {
+                try {
+                    const tokenContract = contractService.getTokenContract(tokenAddr, network);
+                    const metadata = await tokenContract.metadata();
+                    if (metadata?.properties?.decimals != null) {
+                        results[tokenAddr] = metadata.properties.decimals;
+                    }
+                } catch {
+                    // fallback to config decimals
+                }
+                fetchedDecimalsRef.current.add(tokenAddr);
+            }));
+            if (!cancelled && Object.keys(results).length > 0) {
+                setTokenDecimals((prev) => ({ ...prev, ...results }));
+            }
+        };
+        void fetchDecimals();
+        return () => { cancelled = true; };
+    }, [invoices, network]);
 
     const filteredInvoices = statusFilter === 'all'
         ? invoices
@@ -195,7 +228,7 @@ export function Dashboard(): React.JSX.Element {
 
                     {filteredInvoices.map((invoice) => {
                         const tok = findToken(invoice.token, network);
-                        const dec = tok?.decimals ?? 8;
+                        const dec = tokenDecimals[invoice.token] ?? tok?.decimals ?? 8;
                         return (
                             <PaperCard key={invoice.id.toString()} className="!p-4 hover:shadow-lg transition-shadow">
                                 <div className="grid grid-cols-12 gap-4 items-center">
