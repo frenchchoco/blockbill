@@ -13,6 +13,7 @@ import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
 
 const FEE_BPS = 50n;
+const APPROVAL_KEY_PREFIX = 'bb_approve_';
 
 type StepStatus = 'waiting' | 'processing' | 'broadcast' | 'done' | 'error';
 
@@ -89,17 +90,30 @@ export function PayInvoice(): React.JSX.Element {
         if (!invoice || !address) return;
         if (approveStatus === 'done' || approveStatus === 'processing') return;
 
+        const storageKey = `${APPROVAL_KEY_PREFIX}${invoice.token}`;
         let cancelled = false;
+
         const check = async (): Promise<void> => {
             try {
                 const allowance = await checkAllowance(invoice.token);
                 if (!cancelled && allowance >= invoice.totalAmount) {
                     setApproveStatus('done');
+                    localStorage.removeItem(storageKey);
                 }
             } catch {
                 // allowance check failed
             }
         };
+
+        // Restore broadcast state from localStorage (survives page refresh)
+        if (approveStatus === 'waiting') {
+            const stored = localStorage.getItem(storageKey);
+            if (stored && Date.now() - parseInt(stored, 10) < 30 * 60 * 1000) {
+                setApproveStatus('broadcast');
+                return () => { cancelled = true; };
+            }
+            if (stored) localStorage.removeItem(storageKey);
+        }
 
         void check();
 
@@ -121,6 +135,7 @@ export function PayInvoice(): React.JSX.Element {
 
             toast.dismiss('approve-confirm');
             setApproveStatus('broadcast');
+            localStorage.setItem(`${APPROVAL_KEY_PREFIX}${invoice.token}`, Date.now().toString());
             toast.success('Approval broadcast — waiting for block confirmation');
         } catch (err: unknown) {
             toast.dismiss('approve-confirm');
