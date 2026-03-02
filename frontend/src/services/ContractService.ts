@@ -5,7 +5,9 @@ import { Address } from '@btc-vision/transaction';
 import { providerService } from './ProviderService';
 import { BLOCKBILL_ABI } from '../abi/BlockBillABI';
 import type { IBlockBillContract } from '../abi/BlockBillABI';
-import { getBlockBillAddress } from '../config/contracts';
+import { BLOCKBILL_STREAM_ABI } from '../abi/BlockBillStreamABI';
+import type { IBlockBillStreamContract } from '../abi/BlockBillStreamABI';
+import { getBlockBillAddress, getBlockBillStreamAddress } from '../config/contracts';
 
 class ContractService {
     private static instance: ContractService;
@@ -59,6 +61,21 @@ class ContractService {
         const provider = providerService.getProvider(network);
         const contract = getContract<IBlockBillContract>(
             address, BLOCKBILL_ABI, provider, network, sender
+        );
+        this.contracts.set(key, contract);
+        return contract;
+    }
+
+    public getStreamContract(network: Network, sender?: Address): IBlockBillStreamContract {
+        const address = getBlockBillStreamAddress(network);
+        const key = `stream:${address}:${sender?.toString() ?? 'none'}`;
+        const existing = this.contracts.get(key) as IBlockBillStreamContract | undefined;
+        if (existing) {
+            return existing;
+        }
+        const provider = providerService.getProvider(network);
+        const contract = getContract<IBlockBillStreamContract>(
+            address, BLOCKBILL_STREAM_ABI, provider, network, sender
         );
         this.contracts.set(key, contract);
         return contract;
