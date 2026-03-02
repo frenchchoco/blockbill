@@ -16,17 +16,17 @@ interface StepItem {
 const FEATURES: readonly FeatureItem[] = [
     {
         title: 'On-Chain Proof',
-        description: 'Every invoice and payment is immutably recorded on Bitcoin L1 via OPNet.',
+        description: 'Every invoice and payment is immutably recorded on Bitcoin L1 via OPNet. No intermediary, no trust required.',
         icon: 'shield',
     },
     {
         title: 'OP-20 Payments',
-        description: 'Accept any OP-20 token. Automatic fee splitting and tax handling.',
+        description: 'Accept any OP-20 token (MOTO, wBTC, stablecoins). Approve once, pay in one click.',
         icon: 'coins',
     },
     {
         title: 'Shareable Links',
-        description: 'One-click sharing with QR codes. No wallet needed to view.',
+        description: 'Share invoice links or QR codes. Anyone can view without a wallet, and pay by connecting theirs.',
         icon: 'link',
     },
 ];
@@ -75,7 +75,13 @@ export function Landing(): React.JSX.Element {
                     <span className="text-[var(--accent-gold)]">on Bitcoin</span>
                 </h1>
                 <p className="text-lg md:text-xl text-[var(--ink-medium)] max-w-2xl mx-auto leading-relaxed">
-                    Create, share, and settle invoices on-chain. Immutable proof of payment, permanently recorded on Bitcoin L1.
+                    BlockBill lets you create invoices that live on Bitcoin. Your client pays in OP-20 tokens,
+                    and the transaction is permanently recorded on-chain &mdash; no middleman, no dispute,
+                    just an immutable proof of payment on the most secure blockchain.
+                </p>
+                <p className="text-sm text-[var(--ink-light)] max-w-xl mx-auto">
+                    Freelancers, businesses, DAOs &mdash; anyone who needs verifiable, tamper-proof invoicing
+                    with CSV export for accounting and QR codes for instant sharing.
                 </p>
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-6">
                     <Link to="/create"
