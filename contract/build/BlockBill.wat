@@ -6549,7 +6549,7 @@
   i32.const 1000
   i32.ge_u
   if
-   unreachable
+   return
   end
   i64.const 1000
   i64.const 0
@@ -6684,7 +6684,7 @@
   i32.const 1000
   i32.ge_u
   if
-   unreachable
+   return
   end
   i64.const 1000
   i64.const 0

@@ -31,6 +31,7 @@ export function Header(): React.JSX.Element {
                 <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
                     <Link to="/create" className={navLinkClass('/create')}>Create</Link>
                     <Link to="/dashboard" className={navLinkClass('/dashboard')}>Dashboard</Link>
+                    <Link to="/guide" className={navLinkClass('/guide')}>Guide</Link>
                 </nav>
 
                 {/* Desktop Wallet */}
@@ -78,6 +79,10 @@ export function Header(): React.JSX.Element {
                     <Link to="/dashboard" onClick={closeMobile}
                         className={`py-3 px-3 rounded-lg text-sm font-medium ${isActive('/dashboard') ? 'bg-[var(--accent-gold)]/10 text-[var(--accent-gold)]' : 'text-[var(--ink-medium)]'}`}>
                         Dashboard
+                    </Link>
+                    <Link to="/guide" onClick={closeMobile}
+                        className={`py-3 px-3 rounded-lg text-sm font-medium ${isActive('/guide') ? 'bg-[var(--accent-gold)]/10 text-[var(--accent-gold)]' : 'text-[var(--ink-medium)]'}`}>
+                        Guide
                     </Link>
                     <div className="pt-3 mt-2 border-t border-[var(--border-paper)]">
                         {walletAddress ? (

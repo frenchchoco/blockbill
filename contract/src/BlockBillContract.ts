@@ -642,8 +642,9 @@ export class BlockBillContract extends ReentrancyGuard {
         const count: u256 = this.loadU256At(this.pCreatorCount, addrKey);
         const countU32: u32 = count.toU32();
 
+        // Skip silently when index is full — prevents DOS via spam invoices
         if (countU32 >= MAX_INDEX_ENTRIES) {
-            throw new Revert('Max invoices per creator reached');
+            return;
         }
 
         // Use wrapping mul/add for storage key derivation (addrKey * MAX overflows with SafeMath)
@@ -662,8 +663,9 @@ export class BlockBillContract extends ReentrancyGuard {
         const count: u256 = this.loadU256At(this.pRecipientCount, addrKey);
         const countU32: u32 = count.toU32();
 
+        // Skip silently when index is full — prevents DOS via spam invoices
         if (countU32 >= MAX_INDEX_ENTRIES) {
-            throw new Revert('Max invoices per recipient reached');
+            return;
         }
 
         // Use wrapping mul/add for storage key derivation (addrKey * MAX overflows with SafeMath)

@@ -122,6 +122,18 @@ No code changes needed — the architecture is network-agnostic.
 
 Built for [vibecode.finance](https://vibecodedotfinance.vercel.app/challenge) Week 2: "The DeFi Signal"
 
+### Technical Highlights
+
+- **Security Audited (BobOS)** — Full smart contract audit covering OPNet-specific vulnerability patterns (CRV-01→CRV-11), attack surfaces (ATK-01→ATK-20), complete storage layout review, and data serialization verification
+- **100% OPNet Aligned** — Strict TypeScript Law 2026, all SDK conventions (`getContract` → `simulate` → `sendTransaction`), proper `Address` object handling, no raw PSBT, no deprecated ECDSA
+- **Checks-Effects-Interactions** — All state mutations before external `TransferHelper.transferFrom` calls, preventing reentrancy
+- **Collision-Free Storage** — 22 unique storage pointers via `Blockchain.nextPointer`, custom key derivation verified against `u256To30Bytes` truncation issues
+- **DOS-Resistant Indexes** — Index operations silently skip when full instead of reverting, preventing spam-based denial-of-service on recipient/creator indexes
+- **ML-DSA Ready** — Architecture prepared for quantum-resistant signatures (OPNet standard, no ECDSA)
+- **Frontend Security** — Address validation (hex/bech32/P2OP), double-submission guards (`useRef` locks), graceful error handling with user-friendly messages, on-chain decimals resolution
+- **Mainnet Viable** — 0.5% sustainable revenue model, network-agnostic architecture (3-line config switch to mainnet), no off-chain dependencies
+- **Unique UX** — Paper/stationery theme (anti-dark-mode), printable on-chain receipts, QR code sharing, CSV export, in-app user guide
+
 **#opnetvibecode** [@opnetbtc](https://x.com/opnetbtc)
 
 ## License

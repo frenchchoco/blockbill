@@ -6,6 +6,7 @@ import { InvoiceView } from './pages/InvoiceView';
 import { PayInvoice } from './pages/PayInvoice';
 import { Dashboard } from './pages/Dashboard';
 import { Receipt } from './pages/Receipt';
+import { HowTo } from './pages/HowTo';
 import { PaperCard } from './components/common/PaperCard';
 
 function NotFound(): React.JSX.Element {
@@ -32,6 +33,7 @@ function App(): React.JSX.Element {
                 <Route path="/pay/:id" element={<PayInvoice />} />
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/invoice/:id/receipt" element={<Receipt />} />
+                <Route path="/guide" element={<HowTo />} />
                 <Route path="*" element={<NotFound />} />
             </Routes>
         </Layout>
