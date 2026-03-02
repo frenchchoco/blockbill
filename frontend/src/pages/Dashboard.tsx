@@ -153,7 +153,8 @@ export function Dashboard(): React.JSX.Element {
 
     const exportCsv = useCallback(() => {
         if (filteredInvoices.length === 0) return;
-        const rows: string[][] = [['ID', 'Amount', 'Token', 'Status', 'Created Block', 'Paid By', 'Paid Block']];
+        const base = window.location.origin;
+        const rows: string[][] = [['ID', 'Amount', 'Token', 'Status', 'Created Block', 'Paid By', 'Paid Block', 'Link']];
         for (const inv of filteredInvoices) {
             const tok = findToken(inv.token, network);
             const dec = tokenDecimals[inv.token] ?? tok?.decimals ?? 8;
@@ -165,6 +166,7 @@ export function Dashboard(): React.JSX.Element {
                 inv.createdAtBlock.toString(),
                 inv.paidBy && !/^0x0+$/.test(inv.paidBy) ? formatAddress(inv.paidBy) : '',
                 inv.paidAtBlock > 0n ? inv.paidAtBlock.toString() : '',
+                `${base}/invoice/${inv.id.toString()}`,
             ]);
         }
         const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n');
