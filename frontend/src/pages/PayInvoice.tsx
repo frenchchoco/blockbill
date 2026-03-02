@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useWalletConnect } from '@btc-vision/walletconnect';
 import toast from 'react-hot-toast';
@@ -30,10 +30,11 @@ export function PayInvoice(): React.JSX.Element {
     const [approveStatus, setApproveStatus] = useState<StepStatus>('waiting');
     const [payStatus, setPayStatus] = useState<StepStatus>('waiting');
     const [onChainDecimals, setOnChainDecimals] = useState<number | null>(null);
-    const [unlimitedApproval, setUnlimitedApproval] = useState(true);
+    const [unlimitedApproval, setUnlimitedApproval] = useState(false);
+    const payingRef = useRef(false);
 
     useEffect(() => {
-        if (!id) return;
+        if (!id || !/^\d+$/.test(id)) { setError('Invalid invoice ID'); setLoading(false); return; }
         setLoading(true);
         const fetchInvoice = async (): Promise<void> => {
             try {
@@ -130,7 +131,8 @@ export function PayInvoice(): React.JSX.Element {
     }, [walletAddress, invoice, approveToken, unlimitedApproval]);
 
     const handlePay = useCallback(async () => {
-        if (!walletAddress || !id) return;
+        if (!walletAddress || !id || payingRef.current) return;
+        payingRef.current = true;
         setPayStatus('processing');
 
         try {
@@ -155,6 +157,7 @@ export function PayInvoice(): React.JSX.Element {
 
             setPayStatus('done');
         } catch (err: unknown) {
+            payingRef.current = false;
             setPayStatus('error');
             toast.error(friendlyError(err instanceof Error ? err.message : 'Payment failed'));
         }

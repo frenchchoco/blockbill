@@ -59,7 +59,8 @@ export function getKnownTokens(network: Network): readonly TokenInfo[] {
 }
 
 export function findToken(address: string, network: Network): TokenInfo | undefined {
-    return getKnownTokens(network).find((t) => t.address === address);
+    const lower = address.toLowerCase();
+    return getKnownTokens(network).find((t) => t.address.toLowerCase() === lower);
 }
 
 export function formatTokenAmount(amount: bigint, decimals: number): string {

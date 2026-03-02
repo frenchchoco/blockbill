@@ -9,5 +9,6 @@ export function friendlyError(raw: string): string {
     if (lower.includes('cancelled')) return 'This invoice has been cancelled.';
     if (lower.includes('unreachable')) return 'Contract reverted — check your inputs and try again.';
     if (lower.includes('user rejected') || lower.includes('user denied')) return 'Transaction rejected by wallet.';
-    return raw;
+    // Generic fallback — never expose raw WASM traces to users
+    return 'Something went wrong. Please try again.';
 }

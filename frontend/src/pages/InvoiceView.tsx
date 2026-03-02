@@ -24,7 +24,7 @@ export function InvoiceView(): React.JSX.Element {
     const [onChainDecimals, setOnChainDecimals] = useState<number | null>(null);
 
     const fetchInvoice = useCallback(async (showLoading = true): Promise<void> => {
-        if (!id) return;
+        if (!id || !/^\d+$/.test(id)) { setError('Invalid invoice ID'); setLoading(false); return; }
         if (showLoading) { setLoading(true); setError(''); }
 
         try {

@@ -6,7 +6,7 @@ import {
     Calldata,
     encodePointer,
     EMPTY_POINTER,
-    OP_NET,
+    ReentrancyGuard,
     Revert,
     SafeMath,
     StoredU256,
@@ -15,7 +15,7 @@ import {
 
 const STATUS_PENDING: u8 = 0;
 const STATUS_PAID: u8 = 1;
-const STATUS_CANCELLED: u8 = 3;
+const STATUS_CANCELLED: u8 = 2;
 
 const FEE_BPS: u256 = u256.fromU32(50);
 const BPS_DENOMINATOR: u256 = u256.fromU32(10000);
@@ -27,7 +27,7 @@ const MAX_INDEX_ENTRIES: u32 = 1000;
 // Number of 32-byte slots for long string storage (7 * 32 = 224 bytes max)
 const LONG_STRING_MAX_SLOTS: u32 = 7;
 
-export class BlockBillContract extends OP_NET {
+export class BlockBillContract extends ReentrancyGuard {
     // Storage pointers
     private readonly invoiceCountPointer: u16 = Blockchain.nextPointer;
     private readonly feeRecipientPointer: u16 = Blockchain.nextPointer;
@@ -66,6 +66,12 @@ export class BlockBillContract extends OP_NET {
 
     public constructor() {
         super();
+    }
+
+    private assertInvoiceExists(invoiceId: u256): void {
+        if (invoiceId == u256.Zero || invoiceId > this.invoiceCount.value) {
+            throw new Revert('Invoice does not exist');
+        }
     }
 
     public override onDeployment(_calldata: Calldata): void {
@@ -156,6 +162,7 @@ export class BlockBillContract extends OP_NET {
     @returns({ name: 'success', type: ABIDataTypes.BOOL })
     public payInvoice(calldata: Calldata): BytesWriter {
         const invoiceId: u256 = calldata.readU256();
+        this.assertInvoiceExists(invoiceId);
         const caller: Address = Blockchain.tx.sender;
 
         // Load and validate status
@@ -170,14 +177,17 @@ export class BlockBillContract extends OP_NET {
             throw new Revert('Invoice expired');
         }
 
+        // Load creator first — prevent self-pay
+        const creator: Address = this.loadAddressAt(this.pCreator, invoiceId);
+        if (caller.equals(creator)) {
+            throw new Revert('Creator cannot pay own invoice');
+        }
+
         // Check recipient authorization
         const recipient: Address = this.loadAddressAt(this.pRecipient, invoiceId);
         if (!recipient.isZero() && !caller.equals(recipient)) {
             throw new Revert('Not authorized');
         }
-
-        // Load invoice data
-        const creator: Address = this.loadAddressAt(this.pCreator, invoiceId);
         const totalAmount: u256 = this.loadU256At(this.pTotalAmount, invoiceId);
         const token: Address = this.loadAddressAt(this.pToken, invoiceId);
 
@@ -211,6 +221,7 @@ export class BlockBillContract extends OP_NET {
     @returns({ name: 'success', type: ABIDataTypes.BOOL })
     public cancelInvoice(calldata: Calldata): BytesWriter {
         const invoiceId: u256 = calldata.readU256();
+        this.assertInvoiceExists(invoiceId);
         const caller: Address = Blockchain.tx.sender;
 
         // Verify caller is the creator
@@ -240,6 +251,7 @@ export class BlockBillContract extends OP_NET {
     @returns({ name: 'success', type: ABIDataTypes.BOOL })
     public markAsPaidBTC(calldata: Calldata): BytesWriter {
         const invoiceId: u256 = calldata.readU256();
+        this.assertInvoiceExists(invoiceId);
         const btcTxHash: string = calldata.readStringWithLength();
         const caller: Address = Blockchain.tx.sender;
 
@@ -258,8 +270,8 @@ export class BlockBillContract extends OP_NET {
         // Update status to PAID
         this.storeU8At(this.pStatus, invoiceId, STATUS_PAID);
 
-        // Store BTC tx hash (short string, up to 31 bytes)
-        this.storeShortString(this.pBtcTxHash, invoiceId, btcTxHash);
+        // Store BTC tx hash (long string for full 64-char hex hash)
+        this.storeLongString(this.pBtcTxHash, invoiceId, btcTxHash);
 
         // Store paid metadata
         this.storeAddressAt(this.pPaidBy, invoiceId, caller);
@@ -275,6 +287,10 @@ export class BlockBillContract extends OP_NET {
     public setFeeRecipient(calldata: Calldata): BytesWriter {
         const newFeeRecipient: Address = calldata.readAddress();
         const caller: Address = Blockchain.tx.sender;
+
+        if (newFeeRecipient.isZero()) {
+            throw new Revert('Zero address');
+        }
 
         // Verify caller is the owner
         const owner: Address = this.loadAddressAt(this.ownerPointer, u256.Zero);
@@ -324,7 +340,7 @@ export class BlockBillContract extends OP_NET {
         const paidBy: Address = this.loadAddressAt(this.pPaidBy, invoiceId);
         const paidAtBlock: u64 = this.loadU64At(this.pPaidAtBlock, invoiceId);
         const memo: string = this.loadLongString(this.pMemo, invoiceId);
-        const btcTxHash: string = this.loadShortString(this.pBtcTxHash, invoiceId);
+        const btcTxHash: string = this.loadLongString(this.pBtcTxHash, invoiceId);
         const lineItemCount: u16 = this.loadU16At(this.pLineItemCount, invoiceId);
 
         const writer: BytesWriter = new BytesWriter(500);
@@ -354,7 +370,8 @@ export class BlockBillContract extends OP_NET {
         const invoiceId: u256 = calldata.readU256();
         const count: u16 = this.loadU16At(this.pLineItemCount, invoiceId);
 
-        const writer: BytesWriter = new BytesWriter(500);
+        // 2 (count) + up to 10 * (35 desc + 32 amount) = 672 bytes max
+        const writer: BytesWriter = new BytesWriter(700);
         writer.writeU16(count);
 
         for (let i: u16 = 0; i < count; i++) {
@@ -619,6 +636,10 @@ export class BlockBillContract extends OP_NET {
         const count: u256 = this.loadU256At(this.pCreatorCount, addrKey);
         const countU32: u32 = count.toU32();
 
+        if (countU32 >= MAX_INDEX_ENTRIES) {
+            throw new Revert('Max invoices per creator reached');
+        }
+
         // Use wrapping mul/add for storage key derivation (addrKey * MAX overflows with SafeMath)
         const listKey: u256 = u256.add(
             u256.mul(addrKey, u256.fromU32(MAX_INDEX_ENTRIES)),
@@ -634,6 +655,10 @@ export class BlockBillContract extends OP_NET {
         const addrKey: u256 = u256.fromUint8ArrayBE(recipient);
         const count: u256 = this.loadU256At(this.pRecipientCount, addrKey);
         const countU32: u32 = count.toU32();
+
+        if (countU32 >= MAX_INDEX_ENTRIES) {
+            throw new Revert('Max invoices per recipient reached');
+        }
 
         // Use wrapping mul/add for storage key derivation (addrKey * MAX overflows with SafeMath)
         const listKey: u256 = u256.add(
