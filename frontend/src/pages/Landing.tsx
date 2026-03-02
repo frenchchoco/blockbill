@@ -6,7 +6,8 @@ import { PaperCard } from '../components/common/PaperCard';
 interface Feature {
     readonly title: string;
     readonly description: string;
-    readonly icon: 'shield' | 'coins' | 'share';
+    readonly icon: 'shield' | 'coins' | 'share' | 'stream';
+    readonly link?: string;
 }
 
 const FEATURES: readonly Feature[] = [
@@ -24,6 +25,12 @@ const FEATURES: readonly Feature[] = [
         title: 'Share Anywhere',
         description: 'Every invoice gets a public link and QR code. No wallet needed to view — share via email, chat, or print.',
         icon: 'share',
+    },
+    {
+        title: 'Stream Payments',
+        description: 'Stream tokens block-by-block. Recipients withdraw anytime. Pause, resume, or cancel — all on Bitcoin L1.',
+        icon: 'stream',
+        link: '/streams/create',
     },
 ];
 
@@ -60,6 +67,12 @@ function FeatureIcon({ type }: { readonly type: Feature['icon'] }): React.JSX.El
             return (
                 <svg xmlns="http://www.w3.org/2000/svg" className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
+                </svg>
+            );
+        case 'stream':
+            return (
+                <svg xmlns="http://www.w3.org/2000/svg" className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12" />
                 </svg>
             );
     }
@@ -200,7 +213,7 @@ export function Landing(): React.JSX.Element {
                     <h2 className="text-3xl md:text-4xl font-serif text-[var(--ink-dark)]">Why BlockBill?</h2>
                     <p className="text-[var(--ink-light)]">The first trustless invoicing protocol on Bitcoin.</p>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     {FEATURES.map((f) => (
                         <PaperCard key={f.title} className="text-center space-y-4 hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
                             <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-[var(--accent-gold)]/10 text-[var(--accent-gold)] mx-auto">
@@ -208,6 +221,15 @@ export function Landing(): React.JSX.Element {
                             </div>
                             <h3 className="text-xl font-serif text-[var(--ink-dark)]">{f.title}</h3>
                             <p className="text-sm text-[var(--ink-medium)] leading-relaxed">{f.description}</p>
+                            {f.link && (
+                                <Link to={f.link}
+                                    className="inline-flex items-center gap-1 text-sm text-[var(--accent-gold)] hover:text-[var(--accent-gold-light)] font-medium transition-colors">
+                                    Try it
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                                    </svg>
+                                </Link>
+                            )}
                         </PaperCard>
                     ))}
                 </div>

@@ -153,6 +153,48 @@ h1, h2, h3, h4, h5, h6 {
     animation: slide-up 0.6s ease-out both;
 }
 
+/* Stream ink-flow progress bar */
+@keyframes ink-flow {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+@keyframes ink-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+.stream-progress-bar {
+    background: linear-gradient(
+        90deg,
+        var(--accent-gold) 0%,
+        var(--accent-gold-light) 30%,
+        var(--accent-gold) 50%,
+        var(--accent-gold-light) 70%,
+        var(--accent-gold) 100%
+    );
+    background-size: 200% 100%;
+    animation: ink-flow 3s linear infinite;
+    border-radius: 9999px;
+    transition: width 0.6s ease-out;
+}
+
+.stream-progress-bar-mini {
+    background: linear-gradient(
+        90deg,
+        var(--accent-gold) 0%,
+        var(--accent-gold-light) 50%,
+        var(--accent-gold) 100%
+    );
+    background-size: 200% 100%;
+    animation: ink-flow 4s linear infinite;
+    border-radius: 9999px;
+}
+
+.stream-claimable-pulse {
+    animation: ink-pulse 2s ease-in-out infinite;
+}
+
 /* Smooth page transitions */
 main {
     animation: fade-in 0.3s ease-out;

@@ -14,7 +14,12 @@ export function Header(): React.JSX.Element {
     const toggleMobile = useCallback(() => setMobileOpen((prev) => !prev), []);
     const closeMobile = useCallback(() => setMobileOpen(false), []);
 
-    const isActive = (path: string): boolean => location.pathname === path;
+    const isActive = (path: string): boolean => {
+        if (path === '/streams') {
+            return location.pathname === '/streams' || location.pathname.startsWith('/stream');
+        }
+        return location.pathname === path;
+    };
 
     const navLinkClass = (path: string): string =>
         `transition-colors ${isActive(path) ? 'text-[var(--accent-gold)] font-semibold' : 'text-[var(--ink-medium)] hover:text-[var(--accent-gold)]'}`;
@@ -31,6 +36,7 @@ export function Header(): React.JSX.Element {
                 <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
                     <Link to="/create" className={navLinkClass('/create')}>Create</Link>
                     <Link to="/dashboard" className={navLinkClass('/dashboard')}>Dashboard</Link>
+                    <Link to="/streams" className={navLinkClass('/streams')}>Streams</Link>
                     <Link to="/guide" className={navLinkClass('/guide')}>Guide</Link>
                 </nav>
 
@@ -79,6 +85,10 @@ export function Header(): React.JSX.Element {
                     <Link to="/dashboard" onClick={closeMobile}
                         className={`py-3 px-3 rounded-lg text-sm font-medium ${isActive('/dashboard') ? 'bg-[var(--accent-gold)]/10 text-[var(--accent-gold)]' : 'text-[var(--ink-medium)]'}`}>
                         Dashboard
+                    </Link>
+                    <Link to="/streams" onClick={closeMobile}
+                        className={`py-3 px-3 rounded-lg text-sm font-medium ${isActive('/streams') ? 'bg-[var(--accent-gold)]/10 text-[var(--accent-gold)]' : 'text-[var(--ink-medium)]'}`}>
+                        Streams
                     </Link>
                     <Link to="/guide" onClick={closeMobile}
                         className={`py-3 px-3 rounded-lg text-sm font-medium ${isActive('/guide') ? 'bg-[var(--accent-gold)]/10 text-[var(--accent-gold)]' : 'text-[var(--ink-medium)]'}`}>
