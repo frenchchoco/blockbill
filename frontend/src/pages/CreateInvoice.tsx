@@ -219,13 +219,10 @@ export function CreateInvoice(): React.JSX.Element {
             console.log('[BlockBill] Polling for txId:', txId);
             const provider = providerService.getProvider(network);
 
-            // Poll in background — stamp when confirmed
+            // Poll in background — stamp when confirmed (max 12 attempts = ~60s)
             const pollConfirmation = async (): Promise<void> => {
-                let attempt = 0;
-                // eslint-disable-next-line no-constant-condition
-                while (true) {
+                for (let attempt = 1; attempt <= 12; attempt++) {
                     await new Promise((r) => setTimeout(r, 5000));
-                    attempt++;
                     try {
                         console.log(`[BlockBill] Poll attempt ${attempt} for tx:`, txId);
                         const tx = await provider.getTransaction(txId);
@@ -235,6 +232,7 @@ export function CreateInvoice(): React.JSX.Element {
                         console.log(`[BlockBill] Poll error:`, pollErr);
                     }
                 }
+                console.log('[BlockBill] Polling timed out, SealAnimation will auto-confirm');
             };
             void pollConfirmation();
         } catch (err: unknown) {

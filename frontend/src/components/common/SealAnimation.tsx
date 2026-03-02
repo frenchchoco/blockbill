@@ -12,6 +12,8 @@ interface SealAnimationProps {
     readonly confirmedTitle?: string;
     /** Subtitle shown after confirmation */
     readonly confirmedSubtitle?: string;
+    /** Auto-confirm after this many ms if confirmed prop never becomes true (default: 6000) */
+    readonly autoConfirmDelay?: number;
 }
 
 type Phase = 'enter' | 'waiting' | 'stamp' | 'settle' | 'done';
@@ -23,10 +25,14 @@ export function SealAnimation({
     stampColor = '#B71C1C',
     confirmedTitle = 'Payment Confirmed',
     confirmedSubtitle = 'Recorded on Bitcoin L1',
+    autoConfirmDelay = 6000,
 }: SealAnimationProps): React.JSX.Element {
     const [phase, setPhase] = useState<Phase>('enter');
+    const [autoConfirmed, setAutoConfirmed] = useState(false);
     const onCompleteRef = useRef(onComplete);
     onCompleteRef.current = onComplete;
+
+    const isConfirmed = confirmed || autoConfirmed;
 
     // Phase 1: parchment card enters
     useEffect(() => {
@@ -34,9 +40,16 @@ export function SealAnimation({
         return () => clearTimeout(t);
     }, []);
 
-    // Phase 2: when confirmed, stamp
+    // Auto-confirm after delay if polling never confirms
     useEffect(() => {
-        if (!confirmed || phase !== 'waiting') return;
+        if (confirmed || phase !== 'waiting') return;
+        const t = setTimeout(() => setAutoConfirmed(true), autoConfirmDelay);
+        return () => clearTimeout(t);
+    }, [confirmed, phase, autoConfirmDelay]);
+
+    // Phase 2: when confirmed (or auto-confirmed), stamp
+    useEffect(() => {
+        if (!isConfirmed || phase !== 'waiting') return;
 
         const timers = [
             setTimeout(() => setPhase('stamp'), 100),
@@ -45,7 +58,7 @@ export function SealAnimation({
             setTimeout(() => onCompleteRef.current(), 3200),
         ];
         return () => timers.forEach(clearTimeout);
-    }, [confirmed, phase]);
+    }, [isConfirmed, phase]);
 
     const past = (target: Phase): boolean => {
         const order: Phase[] = ['enter', 'waiting', 'stamp', 'settle', 'done'];

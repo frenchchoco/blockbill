@@ -94,14 +94,14 @@ export function PayInvoice(): React.JSX.Element {
             const txId = await approveToken(invoice.token, invoice.totalAmount);
             toast.loading('Waiting for approval confirmation...', { id: 'approve-confirm' });
 
-            // Poll until the approve tx is confirmed in a block
+            // Poll until the approve tx is confirmed in a block (max 12 attempts = ~60s)
             const provider = providerService.getProvider(network);
-            // eslint-disable-next-line no-constant-condition
-            while (true) {
+            let approveConfirmed = false;
+            for (let attempt = 1; attempt <= 12; attempt++) {
                 await new Promise((r) => setTimeout(r, 5000));
                 try {
                     const tx = await provider.getTransaction(txId);
-                    if (tx) break;
+                    if (tx) { approveConfirmed = true; break; }
                 } catch {
                     // not yet in a block
                 }
@@ -109,7 +109,7 @@ export function PayInvoice(): React.JSX.Element {
 
             toast.dismiss('approve-confirm');
             setApproveStatus('done');
-            toast.success('Token approved and confirmed!');
+            toast.success(approveConfirmed ? 'Token approved and confirmed!' : 'Approval broadcast — proceeding to payment');
         } catch (err: unknown) {
             toast.dismiss('approve-confirm');
             setApproveStatus('error');
@@ -145,17 +145,14 @@ export function PayInvoice(): React.JSX.Element {
             setShowSeal(true);
             setSealConfirmed(false);
 
-            // Poll for payment confirmation in background
+            // Poll for payment confirmation in background (max 12 attempts = ~60s)
             const txId = receipt.transactionId;
             console.log('[BlockBill] Pay tx broadcast, receipt:', receipt);
             console.log('[BlockBill] Polling for txId:', txId);
             const provider = providerService.getProvider(network);
             const pollConfirmation = async (): Promise<void> => {
-                let attempt = 0;
-                // eslint-disable-next-line no-constant-condition
-                while (true) {
+                for (let attempt = 1; attempt <= 12; attempt++) {
                     await new Promise((r) => setTimeout(r, 5000));
-                    attempt++;
                     try {
                         console.log(`[BlockBill] Poll attempt ${attempt} for tx:`, txId);
                         const tx = await provider.getTransaction(txId);
@@ -165,6 +162,7 @@ export function PayInvoice(): React.JSX.Element {
                         console.log(`[BlockBill] Poll error:`, pollErr);
                     }
                 }
+                console.log('[BlockBill] Polling timed out, SealAnimation will auto-confirm');
             };
             void pollConfirmation();
         } catch (err: unknown) {
