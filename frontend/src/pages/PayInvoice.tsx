@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { useWalletConnect } from '@btc-vision/walletconnect';
 import { Address } from '@btc-vision/transaction';
 import toast from 'react-hot-toast';
@@ -10,8 +10,6 @@ import type { InvoiceData } from '../types/invoice';
 import { useNetwork } from '../hooks/useNetwork';
 import { useTokenApproval } from '../hooks/useTokenApproval';
 import { contractService } from '../services/ContractService';
-import { providerService } from '../services/ProviderService';
-import { SealAnimation } from '../components/common/SealAnimation';
 import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
 
 const FEE_BPS = 50n;
@@ -20,7 +18,6 @@ type StepStatus = 'waiting' | 'processing' | 'broadcast' | 'done' | 'error';
 
 export function PayInvoice(): React.JSX.Element {
     const { id } = useParams<{ id: string }>();
-    const navigate = useNavigate();
     const { walletAddress, address, openConnectModal } = useWalletConnect();
     const { network } = useNetwork();
 
@@ -30,8 +27,6 @@ export function PayInvoice(): React.JSX.Element {
     const { approve: approveToken, checkAllowance } = useTokenApproval();
     const [approveStatus, setApproveStatus] = useState<StepStatus>('waiting');
     const [payStatus, setPayStatus] = useState<StepStatus>('waiting');
-    const [showSeal, setShowSeal] = useState(false);
-    const [sealConfirmed, setSealConfirmed] = useState(false);
     const [onChainDecimals, setOnChainDecimals] = useState<number | null>(null);
     const [unlimitedApproval, setUnlimitedApproval] = useState(true);
 
@@ -150,7 +145,7 @@ export function PayInvoice(): React.JSX.Element {
             }
 
             // Step 3: Send transaction (wallet handles signing)
-            const receipt = await simulation.sendTransaction({
+            await simulation.sendTransaction({
                 signer: null,
                 mldsaSigner: null,
                 refundTo: walletAddress,
@@ -159,29 +154,6 @@ export function PayInvoice(): React.JSX.Element {
             });
 
             setPayStatus('done');
-            setShowSeal(true);
-            setSealConfirmed(false);
-
-            // Poll for payment confirmation in background (max 12 attempts = ~60s)
-            const txId = receipt.transactionId;
-            console.log('[BlockBill] Pay tx broadcast, receipt:', receipt);
-            console.log('[BlockBill] Polling for txId:', txId);
-            const provider = providerService.getProvider(network);
-            const pollConfirmation = async (): Promise<void> => {
-                for (let attempt = 1; attempt <= 12; attempt++) {
-                    await new Promise((r) => setTimeout(r, 5000));
-                    try {
-                        console.log(`[BlockBill] Poll attempt ${attempt} for tx:`, txId);
-                        const tx = await provider.getTransaction(txId);
-                        console.log(`[BlockBill] Poll result:`, tx);
-                        if (tx) { setSealConfirmed(true); return; }
-                    } catch (pollErr) {
-                        console.log(`[BlockBill] Poll error:`, pollErr);
-                    }
-                }
-                console.log('[BlockBill] Polling timed out, SealAnimation will auto-confirm');
-            };
-            void pollConfirmation();
         } catch (err: unknown) {
             setPayStatus('error');
             toast.error(err instanceof Error ? err.message : 'Payment failed');
@@ -223,9 +195,39 @@ export function PayInvoice(): React.JSX.Element {
     const feeAmount = (invoice.totalAmount * FEE_BPS) / 10000n;
     const creatorReceives = invoice.totalAmount - feeAmount;
 
+    // Payment was broadcast — show success with navigation options
+    if (payStatus === 'done') {
+        return (
+            <div className="max-w-2xl mx-auto">
+                <PaperCard className="text-center py-12">
+                    <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-[var(--stamp-green)]/10 flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-[var(--stamp-green)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                    </div>
+                    <h2 className="text-2xl font-serif text-[var(--ink-dark)] mb-2">Payment Broadcast</h2>
+                    <p className="text-sm text-[var(--ink-medium)] mb-1">
+                        Your transaction has been sent to the network.
+                    </p>
+                    <p className="text-sm text-[var(--ink-light)] mb-8">
+                        The invoice status will update to <strong>PAID</strong> once the block is mined (~10 min).
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                        <Link to={`/invoice/${id}`}
+                            className="inline-flex items-center justify-center px-6 py-3 bg-[var(--accent-gold)] text-white font-medium rounded-lg hover:bg-[var(--accent-gold-light)] transition-colors shadow-md">
+                            Track Invoice Status
+                        </Link>
+                        <Link to="/dashboard"
+                            className="inline-flex items-center justify-center px-6 py-3 border-2 border-[var(--border-paper)] text-[var(--ink-medium)] font-medium rounded-lg hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] transition-colors">
+                            Back to Dashboard
+                        </Link>
+                    </div>
+                </PaperCard>
+            </div>
+        );
+    }
+
     return (
-        <>
-        {showSeal && <SealAnimation confirmed={sealConfirmed} onComplete={() => navigate(`/invoice/${id}`)} autoConfirmDelay={0} />}
         <div className="max-w-2xl mx-auto">
             <PaperCard className="relative">
                 <div className="flex items-start justify-between mb-8 pb-6 border-b border-[var(--border-paper)]">
@@ -308,26 +310,24 @@ export function PayInvoice(): React.JSX.Element {
 
                         {/* Step 2: Pay */}
                         <div className={`flex items-center gap-4 p-4 rounded-lg border transition-all ${
-                            payStatus === 'done' ? 'bg-[var(--stamp-green)]/5 border-[var(--stamp-green)]'
-                            : payStatus === 'error' ? 'bg-[var(--stamp-red)]/5 border-[var(--stamp-red)]'
+                            payStatus === 'error' ? 'bg-[var(--stamp-red)]/5 border-[var(--stamp-red)]'
                             : approveStatus !== 'done' ? 'opacity-50 bg-[var(--paper-bg)] border-[var(--border-paper)]'
                             : 'bg-[var(--paper-bg)] border-[var(--border-paper)]'
                         }`}>
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
-                                payStatus === 'done' ? 'bg-[var(--stamp-green)] text-white'
-                                : payStatus === 'processing' ? 'bg-[var(--accent-gold)] text-white animate-pulse'
+                                payStatus === 'processing' ? 'bg-[var(--accent-gold)] text-white animate-pulse'
                                 : 'bg-[var(--paper-card-dark)] text-[var(--ink-medium)]'
                             }`}>
-                                {payStatus === 'done' ? '\u2713' : '2'}
+                                2
                             </div>
                             <div className="flex-1">
                                 <p className="text-sm font-medium text-[var(--ink-dark)]">Pay Invoice</p>
                                 <p className="text-xs text-[var(--ink-light)]">Execute payment transaction on Bitcoin L1</p>
                             </div>
                             <button type="button" onClick={() => void handlePay()}
-                                disabled={approveStatus !== 'done' || payStatus === 'done' || payStatus === 'processing'}
+                                disabled={approveStatus !== 'done' || payStatus === 'processing'}
                                 className="px-5 py-2.5 bg-[var(--accent-gold)] text-white text-sm font-medium rounded-lg hover:bg-[var(--accent-gold-light)] disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95">
-                                {payStatus === 'processing' ? 'Paying...' : payStatus === 'done' ? 'Paid' : payStatus === 'error' ? 'Retry' : 'Pay'}
+                                {payStatus === 'processing' ? 'Paying...' : payStatus === 'error' ? 'Retry' : 'Pay'}
                             </button>
                         </div>
                     </div>
@@ -340,6 +340,5 @@ export function PayInvoice(): React.JSX.Element {
                 </div>
             </PaperCard>
         </div>
-        </>
     );
 }
