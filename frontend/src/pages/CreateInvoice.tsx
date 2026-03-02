@@ -48,6 +48,7 @@ export function CreateInvoice(): React.JSX.Element {
     const [showDetails, setShowDetails] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [customToken, setCustomToken] = useState(false);
+    const [openInvoice, setOpenInvoice] = useState(false);
     const [showSeal, setShowSeal] = useState(false);
     const [sealConfirmed, setSealConfirmed] = useState(false);
     const [tokenBalance, setTokenBalance] = useState<bigint | null>(null);
@@ -162,6 +163,7 @@ export function CreateInvoice(): React.JSX.Element {
         if (parsedAmount === 0n) { toast.error('Amount must be greater than 0'); return; }
         if (!form.tokenAddress) { toast.error('Please select a token'); return; }
         if (customToken && !tokenValidation.isValid) { toast.error(tokenValidation.error ?? 'Invalid token address'); return; }
+        if (!openInvoice && !form.recipient) { toast.error('Please enter a recipient address'); return; }
         if (form.recipient && !recipientValidation.isValid) { toast.error(recipientValidation.error ?? 'Invalid recipient address'); return; }
         if (form.lineItems.length > 0 && lineItemsTotal > 0n && lineItemsTotal !== parsedAmount) {
             toast.error('Line items total must equal the invoice amount');
@@ -233,7 +235,7 @@ export function CreateInvoice(): React.JSX.Element {
         } finally {
             setSubmitting(false);
         }
-    }, [walletAddress, address, submitting, form, parsedAmount, lineItemsTotal, network, customToken, tokenValidation, recipientValidation]);
+    }, [walletAddress, address, submitting, form, parsedAmount, lineItemsTotal, network, customToken, openInvoice, tokenValidation, recipientValidation]);
 
     const inputCls = 'w-full px-4 py-2.5 bg-[var(--paper-bg)] border border-[var(--border-paper)] rounded-lg text-[var(--ink-dark)] placeholder:text-[var(--ink-light)] focus:outline-none focus:border-[var(--accent-gold)] focus:ring-1 focus:ring-[var(--accent-gold)] transition-colors';
     const labelCls = 'block text-sm font-serif font-medium text-[var(--ink-dark)] mb-1.5';
@@ -358,6 +360,32 @@ export function CreateInvoice(): React.JSX.Element {
                                 className={inputCls + ' text-2xl font-mono font-medium'} />
                         </div>
 
+                        {/* Recipient */}
+                        <div>
+                            <div className="flex items-center justify-between mb-1.5">
+                                <label htmlFor="recipient" className={labelCls + ' mb-0'}>Recipient</label>
+                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="checkbox" checked={openInvoice}
+                                        onChange={(e) => { setOpenInvoice(e.target.checked); if (e.target.checked) updateField('recipient', ''); }}
+                                        className="w-3.5 h-3.5 accent-[var(--accent-gold)] cursor-pointer" />
+                                    <span className="text-xs text-[var(--ink-light)]">Open invoice (anyone can pay)</span>
+                                </label>
+                            </div>
+                            {!openInvoice && (
+                                <>
+                                    <input id="recipient" type="text" value={form.recipient}
+                                        onChange={(e) => updateField('recipient', e.target.value)}
+                                        placeholder="opt1... or 0x..." required className={inputCls} />
+                                    {form.recipient && !recipientValidation.isValid && recipientValidation.error && (
+                                        <p className="text-xs text-[var(--stamp-red)] mt-1">{recipientValidation.error}</p>
+                                    )}
+                                </>
+                            )}
+                            {openInvoice && (
+                                <p className="text-xs text-[var(--ink-light)] italic px-1">No recipient — anyone with the link can pay this invoice.</p>
+                            )}
+                        </div>
+
                         {/* Details Toggle */}
                         <div className="border-t border-[var(--border-paper)] pt-4">
                             <button type="button" onClick={() => setShowDetails(p => !p)}
@@ -372,17 +400,6 @@ export function CreateInvoice(): React.JSX.Element {
 
                             {showDetails && (
                                 <div className="mt-4 space-y-5">
-                                    <div>
-                                        <label htmlFor="recipient" className={labelCls}>
-                                            Recipient <span className="text-xs font-normal text-[var(--ink-light)]">(empty = open invoice)</span>
-                                        </label>
-                                        <input id="recipient" type="text" value={form.recipient}
-                                            onChange={(e) => updateField('recipient', e.target.value)}
-                                            placeholder="opt1... or leave empty" className={inputCls} />
-                                        {form.recipient && !recipientValidation.isValid && recipientValidation.error && (
-                                            <p className="text-xs text-[var(--stamp-red)] mt-1">{recipientValidation.error}</p>
-                                        )}
-                                    </div>
                                     <div>
                                         <label htmlFor="memo" className={labelCls}>Memo</label>
                                         <textarea id="memo" value={form.memo}
@@ -478,12 +495,12 @@ export function CreateInvoice(): React.JSX.Element {
                                     </span>
                                 </div>
                             </div>
-                            {form.recipient && (
-                                <div className="flex justify-between text-sm mb-2">
-                                    <span className="text-[var(--ink-light)]">To</span>
-                                    <span className="font-mono text-[var(--ink-dark)] text-xs">{formatAddress(form.recipient)}</span>
-                                </div>
-                            )}
+                            <div className="flex justify-between text-sm mb-2">
+                                <span className="text-[var(--ink-light)]">To</span>
+                                <span className={`text-xs ${form.recipient ? 'font-mono text-[var(--ink-dark)]' : 'text-[var(--ink-light)] italic'}`}>
+                                    {form.recipient ? formatAddress(form.recipient) : openInvoice ? 'Open Invoice' : 'Required'}
+                                </span>
+                            </div>
                             {form.memo && (
                                 <div className="mb-4 p-3 bg-[var(--paper-bg)] border border-[var(--border-paper)] rounded">
                                     <p className="text-xs text-[var(--ink-medium)] italic leading-relaxed">&ldquo;{form.memo}&rdquo;</p>
