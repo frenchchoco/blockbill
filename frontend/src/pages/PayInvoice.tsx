@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useWalletConnect } from '@btc-vision/walletconnect';
-import { Address } from '@btc-vision/transaction';
 import toast from 'react-hot-toast';
 import { PaperCard } from '../components/common/PaperCard';
 import { StampBadge } from '../components/common/StampBadge';
@@ -11,23 +10,11 @@ import { useNetwork } from '../hooks/useNetwork';
 import { useTokenApproval } from '../hooks/useTokenApproval';
 import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
+import { friendlyError } from '../utils/errors';
+import { parseInvoiceProperties } from '../utils/invoice';
 
 const FEE_BPS = 50n;
 const APPROVAL_KEY_PREFIX = 'bb_approve_';
-
-/** Map raw WASM / contract revert strings to user-friendly messages */
-function friendlyError(raw: string): string {
-    const lower = raw.toLowerCase();
-    if (lower.includes('insufficient balance')) return 'Insufficient token balance to complete this payment.';
-    if (lower.includes('insufficient allowance')) return 'Token allowance too low — please approve first.';
-    if (lower.includes('invoice not found')) return 'Invoice not found on-chain.';
-    if (lower.includes('already paid')) return 'This invoice has already been paid.';
-    if (lower.includes('invoice expired') || lower.includes('past deadline')) return 'This invoice has expired.';
-    if (lower.includes('cancelled')) return 'This invoice has been cancelled.';
-    if (lower.includes('unreachable')) return 'Contract reverted — check your inputs and try again.';
-    if (lower.includes('user rejected') || lower.includes('user denied')) return 'Transaction rejected by wallet.';
-    return raw;
-}
 
 type StepStatus = 'waiting' | 'processing' | 'broadcast' | 'done' | 'error';
 
@@ -53,23 +40,7 @@ export function PayInvoice(): React.JSX.Element {
                 const contract = contractService.getBlockBillContract(network);
                 const result = await contract.getInvoice(BigInt(id));
                 if (!result?.properties) { setError('Invoice not found'); return; }
-                const p = result.properties;
-                setInvoice({
-                    id: BigInt(id),
-                    creator: (p.creator as Address)?.toHex() ?? '',
-                    token: (p.token as Address)?.toHex() ?? '',
-                    totalAmount: p.totalAmount ?? 0n,
-                    recipient: (p.recipient as Address)?.toHex() ?? '',
-                    memo: p.memo ?? '',
-                    deadline: p.deadline ?? 0n,
-                    taxBps: p.taxBps ?? 0,
-                    status: (p.status ?? 0) as InvoiceStatus,
-                    paidBy: (p.paidBy as Address)?.toHex() ?? '',
-                    paidAtBlock: p.paidAtBlock ?? 0n,
-                    createdAtBlock: p.createdAtBlock ?? 0n,
-                    btcTxHash: p.btcTxHash ?? '',
-                    lineItemCount: p.lineItemCount ?? 0,
-                });
+                setInvoice(parseInvoiceProperties(BigInt(id), result.properties));
             } catch (err: unknown) {
                 const msg = err instanceof Error ? err.message : String(err);
                 setError(msg.includes('unreachable') ? 'Invoice not found' : msg);
@@ -156,7 +127,7 @@ export function PayInvoice(): React.JSX.Element {
             setApproveStatus('error');
             toast.error(friendlyError(err instanceof Error ? err.message : 'Approval failed'));
         }
-    }, [walletAddress, invoice, approveToken, unlimitedApproval, network]);
+    }, [walletAddress, invoice, approveToken, unlimitedApproval]);
 
     const handlePay = useCallback(async () => {
         if (!walletAddress || !id) return;

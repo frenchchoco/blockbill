@@ -13,18 +13,7 @@ import { contractService } from '../services/ContractService';
 import { providerService } from '../services/ProviderService';
 import { getKnownTokens, findToken, parseTokenAmount, formatTokenAmount, formatAddress } from '../config/tokens';
 import type { TokenInfo } from '../config/tokens';
-
-/** Map raw WASM / contract revert strings to user-friendly messages */
-function friendlyError(raw: string): string {
-    const lower = raw.toLowerCase();
-    if (lower.includes('insufficient balance')) return 'Insufficient token balance to complete this payment.';
-    if (lower.includes('insufficient allowance')) return 'Token allowance too low — please approve first.';
-    if (lower.includes('already paid')) return 'This invoice has already been paid.';
-    if (lower.includes('cancelled')) return 'This invoice has been cancelled.';
-    if (lower.includes('unreachable')) return 'Contract reverted — check your inputs and try again.';
-    if (lower.includes('user rejected') || lower.includes('user denied')) return 'Transaction rejected by wallet.';
-    return raw;
-}
+import { friendlyError } from '../utils/errors';
 
 interface FormLineItem {
     readonly description: string;
@@ -153,8 +142,7 @@ export function CreateInvoice(): React.JSX.Element {
                 if (!cancelled && balanceResult?.properties) {
                     setTokenBalance(balanceResult.properties.balance ?? 0n);
                 }
-            } catch (err: unknown) {
-                console.error('[BlockBill] Balance fetch failed:', err);
+            } catch {
                 if (!cancelled) {
                     setTokenBalance(null);
                     setOnChainDecimals(null);
@@ -223,8 +211,6 @@ export function CreateInvoice(): React.JSX.Element {
             setSealConfirmed(false);
 
             const txId = receipt.transactionId;
-            console.log('[BlockBill] Create tx broadcast, receipt:', receipt);
-            console.log('[BlockBill] Polling for txId:', txId);
             const provider = providerService.getProvider(network);
 
             // Poll in background — stamp when confirmed (max 12 attempts = ~60s)
@@ -232,15 +218,13 @@ export function CreateInvoice(): React.JSX.Element {
                 for (let attempt = 1; attempt <= 12; attempt++) {
                     await new Promise((r) => setTimeout(r, 5000));
                     try {
-                        console.log(`[BlockBill] Poll attempt ${attempt} for tx:`, txId);
                         const tx = await provider.getTransaction(txId);
-                        console.log(`[BlockBill] Poll result:`, tx);
                         if (tx) { setSealConfirmed(true); return; }
-                    } catch (pollErr) {
-                        console.log(`[BlockBill] Poll error:`, pollErr);
+                    } catch {
+                        // polling error, will retry
                     }
                 }
-                console.log('[BlockBill] Polling timed out, SealAnimation will auto-confirm');
+                // polling timed out, SealAnimation will auto-confirm
             };
             void pollConfirmation();
         } catch (err: unknown) {
@@ -249,7 +233,7 @@ export function CreateInvoice(): React.JSX.Element {
         } finally {
             setSubmitting(false);
         }
-    }, [walletAddress, address, submitting, form, parsedAmount, lineItemsTotal, network, navigate, customToken, tokenValidation, recipientValidation]);
+    }, [walletAddress, address, submitting, form, parsedAmount, lineItemsTotal, network, customToken, tokenValidation, recipientValidation]);
 
     const inputCls = 'w-full px-4 py-2.5 bg-[var(--paper-bg)] border border-[var(--border-paper)] rounded-lg text-[var(--ink-dark)] placeholder:text-[var(--ink-light)] focus:outline-none focus:border-[var(--accent-gold)] focus:ring-1 focus:ring-[var(--accent-gold)] transition-colors';
     const labelCls = 'block text-sm font-serif font-medium text-[var(--ink-dark)] mb-1.5';

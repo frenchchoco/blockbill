@@ -8,7 +8,7 @@ import type { InvoiceData, LineItem } from '../types/invoice';
 import { useNetwork } from '../hooks/useNetwork';
 import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
-import type { Address } from '@btc-vision/transaction';
+import { parseInvoiceProperties } from '../utils/invoice';
 
 export function Receipt(): React.JSX.Element {
     const { id } = useParams<{ id: string }>();
@@ -29,23 +29,7 @@ export function Receipt(): React.JSX.Element {
                 const result = await contract.getInvoice(BigInt(id));
                 if (!result?.properties) { setError('Invoice not found'); return; }
 
-                const p = result.properties;
-                const inv: InvoiceData = {
-                    id: BigInt(id),
-                    creator: (p.creator as Address)?.toHex() ?? '',
-                    token: (p.token as Address)?.toHex() ?? '',
-                    totalAmount: p.totalAmount ?? 0n,
-                    recipient: (p.recipient as Address)?.toHex() ?? '',
-                    memo: p.memo ?? '',
-                    deadline: p.deadline ?? 0n,
-                    taxBps: p.taxBps ?? 0,
-                    status: (p.status ?? 0) as InvoiceStatus,
-                    paidBy: (p.paidBy as Address)?.toHex() ?? '',
-                    paidAtBlock: p.paidAtBlock ?? 0n,
-                    createdAtBlock: p.createdAtBlock ?? 0n,
-                    btcTxHash: p.btcTxHash ?? '',
-                    lineItemCount: p.lineItemCount ?? 0,
-                };
+                const inv = parseInvoiceProperties(BigInt(id), result.properties);
                 setInvoice(inv);
 
                 if (inv.lineItemCount > 0) {

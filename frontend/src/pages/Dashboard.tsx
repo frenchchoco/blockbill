@@ -8,7 +8,7 @@ import type { InvoiceData } from '../types/invoice';
 import { useNetwork } from '../hooks/useNetwork';
 import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
-import type { Address } from '@btc-vision/transaction';
+import { parseInvoiceProperties } from '../utils/invoice';
 
 type Tab = 'created' | 'received';
 type StatusFilter = 'all' | 'pending' | 'paid' | 'cancelled';
@@ -73,26 +73,8 @@ export function Dashboard(): React.JSX.Element {
             for (let i = 0; i < results.length; i++) {
                 const invResult = results[i];
                 if (!invResult?.properties) continue;
-                const p = invResult.properties;
 
-                console.log(`[BlockBill] Invoice #${i + 1} raw status:`, p.status, typeof p.status);
-
-                const inv: InvoiceData = {
-                    id: BigInt(i + 1),
-                    creator: (p.creator as Address | undefined)?.toHex() ?? '',
-                    token: (p.token as Address | undefined)?.toHex() ?? '',
-                    totalAmount: p.totalAmount ?? 0n,
-                    recipient: (p.recipient as Address | undefined)?.toHex() ?? '',
-                    memo: p.memo ?? '',
-                    deadline: p.deadline ?? 0n,
-                    taxBps: p.taxBps ?? 0,
-                    status: (p.status ?? 0) as InvoiceStatus,
-                    paidBy: (p.paidBy as Address | undefined)?.toHex() ?? '',
-                    paidAtBlock: p.paidAtBlock ?? 0n,
-                    createdAtBlock: p.createdAtBlock ?? 0n,
-                    btcTxHash: p.btcTxHash ?? '',
-                    lineItemCount: p.lineItemCount ?? 0,
-                };
+                const inv = parseInvoiceProperties(BigInt(i + 1), invResult.properties);
 
                 const isCreator = inv.creator.toLowerCase() === walletHex;
                 const isRecipient = inv.recipient.toLowerCase() === walletHex;
