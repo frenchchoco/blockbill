@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useWalletConnect } from '@btc-vision/walletconnect';
 import toast from 'react-hot-toast';
@@ -199,7 +199,7 @@ export function StreamView(): React.JSX.Element {
             const streamContractAddr = getBlockBillStreamAddress(network);
             const tokenContract = contractService.getTokenContract(stream.token, network, address);
             const spender = AddrClass.fromString(streamContractAddr);
-            const simulation = await tokenContract.approve(spender, parsedAmt);
+            const simulation = await tokenContract.increaseAllowance(spender, parsedAmt);
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
             await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, maximumAllowedSatToSpend: 100_000n, network });
             toast.success('Token approved for top-up!');

@@ -43,7 +43,7 @@ export function CreateStream(): React.JSX.Element {
     const navigate = useNavigate();
     const [form, setForm] = useState<StreamFormData>(INITIAL_FORM);
     const [submitting, setSubmitting] = useState(false);
-    const [step, setStep] = useState<'form' | 'approve' | 'create'>('form');
+    const [_step, setStep] = useState<'form' | 'approve' | 'create'>('form');
     const [customToken, setCustomToken] = useState(false);
     const [tokenBalance, setTokenBalance] = useState<bigint | null>(null);
     const [onChainDecimals, setOnChainDecimals] = useState<number | null>(null);
@@ -168,7 +168,7 @@ export function CreateStream(): React.JSX.Element {
             const tokenContract = contractService.getTokenContract(resolvedHex, network, address);
             const spender = (await import('@btc-vision/transaction')).Address.fromString(streamContractAddr);
 
-            const simulation = await tokenContract.approve(spender, parsedAmount);
+            const simulation = await tokenContract.increaseAllowance(spender, parsedAmount);
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
 
             toast.loading('Approve token spending in your wallet...');
