@@ -15,6 +15,20 @@ import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
 const FEE_BPS = 50n;
 const APPROVAL_KEY_PREFIX = 'bb_approve_';
 
+/** Map raw WASM / contract revert strings to user-friendly messages */
+function friendlyError(raw: string): string {
+    const lower = raw.toLowerCase();
+    if (lower.includes('insufficient balance')) return 'Insufficient token balance to complete this payment.';
+    if (lower.includes('insufficient allowance')) return 'Token allowance too low — please approve first.';
+    if (lower.includes('invoice not found')) return 'Invoice not found on-chain.';
+    if (lower.includes('already paid')) return 'This invoice has already been paid.';
+    if (lower.includes('invoice expired') || lower.includes('past deadline')) return 'This invoice has expired.';
+    if (lower.includes('cancelled')) return 'This invoice has been cancelled.';
+    if (lower.includes('unreachable')) return 'Contract reverted — check your inputs and try again.';
+    if (lower.includes('user rejected') || lower.includes('user denied')) return 'Transaction rejected by wallet.';
+    return raw;
+}
+
 type StepStatus = 'waiting' | 'processing' | 'broadcast' | 'done' | 'error';
 
 export function PayInvoice(): React.JSX.Element {
@@ -140,7 +154,7 @@ export function PayInvoice(): React.JSX.Element {
         } catch (err: unknown) {
             toast.dismiss('approve-confirm');
             setApproveStatus('error');
-            toast.error(err instanceof Error ? err.message : 'Approval failed');
+            toast.error(friendlyError(err instanceof Error ? err.message : 'Approval failed'));
         }
     }, [walletAddress, invoice, approveToken, unlimitedApproval, network]);
 
@@ -156,7 +170,7 @@ export function PayInvoice(): React.JSX.Element {
 
             // Step 2: Check revert
             if (simulation.revert) {
-                throw new Error(`Simulation reverted: ${simulation.revert}`);
+                throw new Error(friendlyError(simulation.revert));
             }
 
             // Step 3: Send transaction (wallet handles signing)
@@ -171,7 +185,7 @@ export function PayInvoice(): React.JSX.Element {
             setPayStatus('done');
         } catch (err: unknown) {
             setPayStatus('error');
-            toast.error(err instanceof Error ? err.message : 'Payment failed');
+            toast.error(friendlyError(err instanceof Error ? err.message : 'Payment failed'));
         }
     }, [walletAddress, address, id, network]);
 

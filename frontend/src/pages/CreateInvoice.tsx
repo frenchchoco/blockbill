@@ -14,6 +14,18 @@ import { providerService } from '../services/ProviderService';
 import { getKnownTokens, findToken, parseTokenAmount, formatTokenAmount, formatAddress } from '../config/tokens';
 import type { TokenInfo } from '../config/tokens';
 
+/** Map raw WASM / contract revert strings to user-friendly messages */
+function friendlyError(raw: string): string {
+    const lower = raw.toLowerCase();
+    if (lower.includes('insufficient balance')) return 'Insufficient token balance to complete this payment.';
+    if (lower.includes('insufficient allowance')) return 'Token allowance too low — please approve first.';
+    if (lower.includes('already paid')) return 'This invoice has already been paid.';
+    if (lower.includes('cancelled')) return 'This invoice has been cancelled.';
+    if (lower.includes('unreachable')) return 'Contract reverted — check your inputs and try again.';
+    if (lower.includes('user rejected') || lower.includes('user denied')) return 'Transaction rejected by wallet.';
+    return raw;
+}
+
 interface FormLineItem {
     readonly description: string;
     readonly amount: string;
@@ -194,7 +206,7 @@ export function CreateInvoice(): React.JSX.Element {
 
             // Step 2: Check revert
             if (simulation.revert) {
-                throw new Error(`Simulation reverted: ${simulation.revert}`);
+                throw new Error(friendlyError(simulation.revert));
             }
 
             // Step 3: Send transaction (wallet handles signing)
@@ -237,8 +249,7 @@ export function CreateInvoice(): React.JSX.Element {
             void pollConfirmation();
         } catch (err: unknown) {
             toast.dismiss();
-            const msg = err instanceof Error ? err.message : String(err);
-            toast.error(msg.includes('unreachable') ? 'Contract reverted — check inputs and try again' : msg);
+            toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
         } finally {
             setSubmitting(false);
         }
