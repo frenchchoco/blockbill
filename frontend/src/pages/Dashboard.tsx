@@ -163,7 +163,7 @@ export function Dashboard(): React.JSX.Element {
                 tok?.symbol ?? formatAddress(inv.token),
                 statusLabel(inv.status),
                 inv.createdAtBlock.toString(),
-                inv.paidBy ? formatAddress(inv.paidBy) : '',
+                inv.paidBy && !/^0x0+$/.test(inv.paidBy) ? formatAddress(inv.paidBy) : '',
                 inv.paidAtBlock > 0n ? inv.paidAtBlock.toString() : '',
             ]);
         }
