@@ -91,25 +91,11 @@ export function PayInvoice(): React.JSX.Element {
         setApproveStatus('processing');
 
         try {
-            const txId = await approveToken(invoice.token, invoice.totalAmount);
-            toast.loading('Waiting for approval confirmation...', { id: 'approve-confirm' });
-
-            // Poll until the approve tx is confirmed in a block (max 12 attempts = ~60s)
-            const provider = providerService.getProvider(network);
-            let approveConfirmed = false;
-            for (let attempt = 1; attempt <= 12; attempt++) {
-                await new Promise((r) => setTimeout(r, 5000));
-                try {
-                    const tx = await provider.getTransaction(txId);
-                    if (tx) { approveConfirmed = true; break; }
-                } catch {
-                    // not yet in a block
-                }
-            }
+            await approveToken(invoice.token, invoice.totalAmount);
 
             toast.dismiss('approve-confirm');
             setApproveStatus('done');
-            toast.success(approveConfirmed ? 'Token approved and confirmed!' : 'Approval broadcast — proceeding to payment');
+            toast.success('Approval broadcast — wait for next block before paying');
         } catch (err: unknown) {
             toast.dismiss('approve-confirm');
             setApproveStatus('error');
@@ -266,7 +252,7 @@ export function PayInvoice(): React.JSX.Element {
                             <div className="flex-1">
                                 <p className="text-sm font-medium text-[var(--ink-dark)]">Approve Token Spend</p>
                                 <p className="text-xs text-[var(--ink-light)]">
-                                    {approveStatus === 'processing' ? 'Waiting for block confirmation...' : 'Allow BlockBill contract to transfer tokens'}
+                                    {approveStatus === 'done' ? 'Wait ~10 min for next block before paying' : 'Allow BlockBill contract to transfer tokens'}
                                 </p>
                             </div>
                             <button type="button" onClick={() => void handleApprove()}
