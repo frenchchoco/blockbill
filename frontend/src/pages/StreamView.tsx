@@ -552,6 +552,7 @@ export function StreamView(): React.JSX.Element {
                             {stream.status === StreamStatus.Cancelled ? '🚫 Cancellation reason' : '⏸ Pause reason'}
                         </p>
                         <p className="text-sm text-[var(--ink-dark)] italic">{storedReason}</p>
+                        <p className="text-[10px] text-[var(--ink-light)] mt-1">Stored locally — clearing site data will erase this note.</p>
                     </div>
                 )}
 
@@ -676,6 +677,7 @@ export function StreamView(): React.JSX.Element {
                                                 <input type="text" value={pauseReason} onChange={(e) => setPauseReason(e.target.value)}
                                                     placeholder="Reason (optional)" maxLength={200}
                                                     className={inputCls + ' text-sm'} />
+                                                <p className="text-[10px] text-[var(--ink-light)]">Stored locally in your browser — clearing site data will erase it.</p>
                                                 <div className="flex gap-2">
                                                     <button type="button" onClick={() => void handlePauseResume(pauseReason)} disabled={pausing || !!pendingTx}
                                                         className="flex-1 py-2 bg-[var(--stamp-orange)] text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
@@ -713,6 +715,7 @@ export function StreamView(): React.JSX.Element {
                                             <input type="text" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)}
                                                 placeholder="Reason (optional)" maxLength={200}
                                                 className={inputCls + ' text-sm'} />
+                                            <p className="text-[10px] text-[var(--ink-light)]">Stored locally in your browser — clearing site data will erase it.</p>
                                             <div className="flex gap-2">
                                                 <button type="button" onClick={() => void handleCancel(cancelReason)} disabled={cancelling || !!pendingTx}
                                                     className="flex-1 py-2 bg-[var(--stamp-red)] text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
