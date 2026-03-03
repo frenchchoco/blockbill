@@ -65,6 +65,7 @@ export function StreamView(): React.JSX.Element {
     const [memo, setMemo] = useState<string | null>(null);
     /** Whether the URL hash contains an encrypted memo (captured once at mount). */
     const hasHashMemo = useMemo(() => getMemoFromHash() !== null, []);
+    const [memoRevealed, setMemoRevealed] = useState(false);
 
     const withdrawToValidation = useAddressValidation(withdrawToAddr, network);
 
@@ -210,27 +211,44 @@ export function StreamView(): React.JSX.Element {
         prevStreamSnapshotRef.current = snapshot;
     }, [stream?.status, stream?.totalDeposited, stream?.totalWithdrawn]);
 
-    // Resolve memo: try URL hash first (shared link), then localStorage draft
+    // Resolve memo: URL hash → persisted by stream ID → localStorage draft
     useEffect(() => {
         if (!stream) return;
         let cancelled = false;
+        const memoKey = `bb_stream_memo_${stream.id}`;
 
         const resolve = async (): Promise<void> => {
             // 1. Try encrypted memo from URL hash
             const hashMemo = getMemoFromHash();
             if (hashMemo) {
                 const plain = await decryptMemo(hashMemo, stream.sender, stream.recipient);
-                if (!cancelled && plain) { setMemo(plain); return; }
+                if (!cancelled && plain) {
+                    setMemo(plain);
+                    localStorage.setItem(memoKey, plain);
+                    return;
+                }
             }
-            // 2. Fallback: check localStorage drafts (sender only)
+            // 2. Try persisted memo (survives draft cleanup)
+            const persisted = localStorage.getItem(memoKey);
+            if (!cancelled && persisted) { setMemo(persisted); return; }
+            // 3. Fallback: check localStorage drafts (sender only)
             const drafts = getStreamDrafts();
-            const match = drafts.find((d) =>
-                d.memo && d.tokenAddress &&
-                normalizeHex(d.tokenAddress) === normalizeHex(stream.token) &&
-                d.recipient && normalizeHex(d.recipient) === normalizeHex(stream.recipient) &&
-                (!d.senderAddress || normalizeHex(d.senderAddress) === normalizeHex(stream.sender)),
-            );
-            if (!cancelled && match?.memo) { setMemo(match.memo); }
+            const senderHex = normalizeHex(stream.sender);
+            const recipientHex = normalizeHex(stream.recipient);
+            const tokenHex = normalizeHex(stream.token);
+            const match = drafts.find((d) => {
+                if (!d.memo || !d.tokenAddress) return false;
+                if (normalizeHex(d.tokenAddress) !== tokenHex) return false;
+                if (d.senderAddress && normalizeHex(d.senderAddress) !== senderHex) return false;
+                // recipient may be bech32 (opt1...) or hex — only match hex-format recipients
+                if (d.recipient && d.recipient.startsWith('0x') && normalizeHex(d.recipient) !== recipientHex) return false;
+                if (d.recipient && !d.recipient.startsWith('0x')) return true; // bech32 — can't reliably match, accept if token+sender match
+                return normalizeHex(d.recipient) === recipientHex;
+            });
+            if (!cancelled && match?.memo) {
+                setMemo(match.memo);
+                localStorage.setItem(memoKey, match.memo);
+            }
         };
 
         void resolve();
@@ -650,12 +668,21 @@ export function StreamView(): React.JSX.Element {
 
                 {/* Encrypted Memo */}
                 {memo && (isSender || isRecipient) && (
-                    <div className="mb-8 px-4 py-3 bg-[var(--paper-bg)] rounded-lg border border-dashed border-[var(--border-paper)]">
+                    <button type="button" onClick={() => setMemoRevealed((r) => !r)}
+                        className="mb-8 w-full text-left px-4 py-3 bg-[var(--paper-bg)] rounded-lg border border-dashed border-[var(--border-paper)] cursor-pointer hover:border-[var(--accent-gold)]/40 transition-colors group print:cursor-default print:border-solid">
                         <p className="text-xs text-[var(--ink-light)] font-serif mb-1 flex items-center gap-1">
-                            <span>🔒</span> Private Memo
+                            <span className="print:hidden">{memoRevealed ? '🔓' : '🔒'}</span>
+                            Private Memo
+                            <span className="ml-auto text-[10px] text-[var(--ink-light)] opacity-0 group-hover:opacity-100 transition-opacity print:hidden">
+                                {memoRevealed ? 'click to hide' : 'click to reveal'}
+                            </span>
                         </p>
-                        <p className="text-sm text-[var(--ink-dark)] italic whitespace-pre-wrap">{memo}</p>
-                    </div>
+                        <p className={`text-sm text-[var(--ink-dark)] italic whitespace-pre-wrap transition-all duration-300 select-none print:select-auto print:filter-none ${
+                            memoRevealed ? '' : 'blur-sm'
+                        }`}>
+                            {memo}
+                        </p>
+                    </button>
                 )}
                 {hasHashMemo && !memo && !(isSender || isRecipient) && (
                     <div className="mb-8 px-4 py-3 bg-[var(--paper-bg)] rounded-lg border border-dashed border-[var(--border-paper)]">
