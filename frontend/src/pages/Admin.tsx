@@ -9,7 +9,7 @@ import { getTxGasParams } from '../config/networks';
 import { friendlyError } from '../utils/errors';
 
 /* ── Owner check ─────────────────────────────────────────────── */
-const DEPLOYER_HEX = '0x3e9f5de96aae5962c729970fc5fbbc027856dc9473003d901e1c80b51ce62aff';
+const DEPLOYER_HEX = '0x8edd64cd6aebe907c6618c97a1f5ca2531d80446b69cce8227e815c928974581';
 
 export function Admin(): React.JSX.Element {
     const { walletAddress, address } = useWalletConnect();
