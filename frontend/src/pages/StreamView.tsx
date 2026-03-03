@@ -67,6 +67,11 @@ export function StreamView(): React.JSX.Element {
     const hasHashMemo = useMemo(() => getMemoFromHash() !== null, []);
     const [memoRevealed, setMemoRevealed] = useState(false);
 
+    // Reset memo reveal state when wallet changes
+    useEffect(() => {
+        setMemoRevealed(false);
+    }, [walletAddress]);
+
     const withdrawToValidation = useAddressValidation(withdrawToAddr, network);
 
     // Restore withdraw broadcast state from localStorage (prevents double withdraw after navigation)
