@@ -3,7 +3,6 @@ import { useNetwork } from './useNetwork';
 import { contractService } from '../services/ContractService';
 import type { StreamData } from '../types/stream';
 import { parseStreamProperties } from '../utils/streamParser';
-import type { RawStreamProperties } from '../utils/streamParser';
 
 const POLL_INTERVAL = 10_000; // 10 seconds
 
