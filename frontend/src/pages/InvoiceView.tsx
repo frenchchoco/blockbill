@@ -36,6 +36,10 @@ export function InvoiceView(): React.JSX.Element {
             if (!result?.properties) { setError('Invoice not found'); return; }
 
             const inv = parseInvoiceProperties(BigInt(id), result.properties);
+
+            // Non-existent invoices return all-zero fields — detect by empty creator
+            const creatorHex = inv.creator.replace(/^(0x)+/i, '').toLowerCase();
+            if (!creatorHex || /^0+$/.test(creatorHex)) { setError('Invoice not found'); return; }
             setInvoice(inv);
 
             if (inv.lineItemCount > 0) {

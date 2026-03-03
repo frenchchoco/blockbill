@@ -145,6 +145,11 @@ export function StreamView(): React.JSX.Element {
             if (!streamResult?.properties) { setError('Stream not found'); return; }
 
             const s = parseStreamProperties(Number(id), streamResult.properties as RawStreamProperties);
+
+            // Non-existent streams return all-zero fields — detect by empty sender
+            const senderHex = s.sender.replace(/^(0x)+/i, '').toLowerCase();
+            if (!senderHex || /^0+$/.test(senderHex)) { setError('Stream not found'); return; }
+
             setStream(s);
             setWithdrawable(withdrawableResult?.properties?.withdrawable ?? 0n);
         } catch (err: unknown) {

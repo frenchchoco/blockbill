@@ -99,7 +99,14 @@ export function PayInvoice(): React.JSX.Element {
                 const contract = contractService.getBlockBillContract(network);
                 const result = await contract.getInvoice(BigInt(id));
                 if (!result?.properties) { setError('Invoice not found'); return; }
-                setInvoice(parseInvoiceProperties(BigInt(id), result.properties));
+
+                const inv = parseInvoiceProperties(BigInt(id), result.properties);
+
+                // Non-existent invoices return all-zero fields — detect by empty creator
+                const creatorHex = inv.creator.replace(/^(0x)+/i, '').toLowerCase();
+                if (!creatorHex || /^0+$/.test(creatorHex)) { setError('Invoice not found'); return; }
+
+                setInvoice(inv);
             } catch (err: unknown) {
                 const msg = err instanceof Error ? err.message : String(err);
                 setError(msg.includes('unreachable') ? 'Invoice not found' : msg);
