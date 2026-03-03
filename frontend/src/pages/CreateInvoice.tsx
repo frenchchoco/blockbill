@@ -260,7 +260,7 @@ export function CreateInvoice(): React.JSX.Element {
                         // polling error, will retry
                     }
                 }
-                // polling timed out, SealAnimation will auto-confirm
+                // polling timed out — user can click "Continue without waiting"
             };
             void pollConfirmation();
         } catch (err: unknown) {
@@ -284,6 +284,7 @@ export function CreateInvoice(): React.JSX.Element {
                 stampColor="#B8860B"
                 confirmedTitle="Invoice Created"
                 confirmedSubtitle="Recorded on Bitcoin L1"
+                autoConfirmDelay={0}
             />
         )}
         <div className="max-w-6xl mx-auto">
