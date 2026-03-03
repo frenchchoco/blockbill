@@ -17,6 +17,9 @@ import { parseInvoiceProperties } from '../utils/invoice';
 import { netFromGross, calculateFee, FEE_PERCENT } from '../utils/fee';
 import { useSendTransaction } from '../hooks/useSendTransaction';
 const APPROVAL_KEY_PREFIX = 'bb_approve_';
+const PAY_BROADCAST_PREFIX = 'bb_pay_broadcast_';
+/** How long a pay-broadcast entry stays valid (15 min — just over a Bitcoin block). */
+const PAY_BROADCAST_TTL = 15 * 60 * 1000;
 
 type StepStatus = 'waiting' | 'processing' | 'broadcast' | 'done' | 'error';
 
@@ -39,6 +42,19 @@ export function PayInvoice(): React.JSX.Element {
     const payingRef = useRef(false);
     const [sealConfirmed, setSealConfirmed] = useState(false);
     const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    // Restore payment broadcast state from localStorage (survives page refresh / navigation)
+    useEffect(() => {
+        if (!id) return;
+        try {
+            const stored = localStorage.getItem(`${PAY_BROADCAST_PREFIX}${id}`);
+            if (stored && Date.now() - parseInt(stored, 10) < PAY_BROADCAST_TTL) {
+                setPayStatus('done');
+            } else if (stored) {
+                localStorage.removeItem(`${PAY_BROADCAST_PREFIX}${id}`);
+            }
+        } catch { /* ignore */ }
+    }, [id]);
 
     // Cleanup on unmount
     useEffect(() => {
@@ -66,6 +82,7 @@ export function PayInvoice(): React.JSX.Element {
                     const inv = parseInvoiceProperties(BigInt(id), result.properties);
                     if (inv.status === InvoiceStatus.Paid) {
                         setSealConfirmed(true);
+                        localStorage.removeItem(`${PAY_BROADCAST_PREFIX}${id}`);
                         if (pollTimerRef.current) clearInterval(pollTimerRef.current);
                     }
                 }
@@ -193,6 +210,8 @@ export function PayInvoice(): React.JSX.Element {
             // Step 3: Send transaction (user picks fee rate)
             await sendWithFeeSelector(simulation, { refundTo: walletAddress, network });
 
+            // Persist broadcast state so navigating away + back still shows BROADCASTING
+            localStorage.setItem(`${PAY_BROADCAST_PREFIX}${id}`, Date.now().toString());
             setPayStatus('done');
         } catch (err: unknown) {
             payingRef.current = false;

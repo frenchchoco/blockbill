@@ -429,12 +429,21 @@ export function Dashboard(): React.JSX.Element {
                                             className="text-sm text-[var(--accent-gold)] hover:text-[var(--accent-gold-light)] transition-colors">
                                             View
                                         </Link>
-                                        {invoice.status === InvoiceStatus.Pending && !expired && activeTab === 'received' && (
-                                            <Link to={`/pay/${invoice.id.toString()}`}
-                                                className="text-sm text-white bg-[var(--accent-gold)] px-3 py-1 rounded hover:bg-[var(--accent-gold-light)] transition-colors">
-                                                Pay
-                                            </Link>
-                                        )}
+                                        {invoice.status === InvoiceStatus.Pending && !expired && activeTab === 'received' && (() => {
+                                            const broadcastTs = localStorage.getItem(`bb_pay_broadcast_${invoice.id.toString()}`);
+                                            const isBroadcast = broadcastTs && Date.now() - parseInt(broadcastTs, 10) < 15 * 60 * 1000;
+                                            return isBroadcast ? (
+                                                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent-gold)]">
+                                                    <span className="inline-block w-2 h-2 border border-[var(--accent-gold)] border-t-transparent rounded-full animate-spin" />
+                                                    Paying…
+                                                </span>
+                                            ) : (
+                                                <Link to={`/pay/${invoice.id.toString()}`}
+                                                    className="text-sm text-white bg-[var(--accent-gold)] px-3 py-1 rounded hover:bg-[var(--accent-gold-light)] transition-colors">
+                                                    Pay
+                                                </Link>
+                                            );
+                                        })()}
                                     </div>
                                 </div>
                             </PaperCard>
