@@ -188,7 +188,7 @@ export function Landing(): React.JSX.Element {
                         { label: 'Bitcoin L1', sub: 'Secured by proof-of-work' },
                         { label: '100% On-Chain', sub: 'No off-chain dependencies' },
                         { label: 'Trustless', sub: 'No intermediary required' },
-                        { label: '0.5% Fee', sub: 'Pay only when you get paid' },
+                        { label: '0.5% Fee', sub: 'On every transaction' },
                     ] as const).map((item) => (
                         <div key={item.label} className="text-center">
                             <p className="text-sm font-serif font-semibold text-[var(--ink-dark)]">{item.label}</p>
@@ -318,11 +318,23 @@ export function Landing(): React.JSX.Element {
             <section className="text-center">
                 <PaperCard className="max-w-lg mx-auto text-center relative overflow-hidden">
                     <div className="absolute inset-0 bg-gradient-to-br from-[var(--accent-gold)]/5 to-transparent" />
-                    <div className="relative space-y-3">
+                    <div className="relative space-y-4">
                         <h2 className="text-2xl font-serif text-[var(--ink-dark)]">Simple Pricing</h2>
                         <p className="text-5xl font-serif text-[var(--accent-gold)] font-bold">0.5%</p>
                         <p className="text-lg text-[var(--ink-medium)]">per transaction. That&apos;s it.</p>
-                        <p className="text-sm text-[var(--ink-light)]">No subscriptions. No hidden fees. Pay only when you get paid.</p>
+                        <p className="text-sm text-[var(--ink-light)]">No subscriptions. No hidden fees.</p>
+                        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-2">
+                            <div className="text-center">
+                                <p className="text-xs uppercase tracking-wider text-[var(--accent-gold)] font-semibold">Invoice</p>
+                                <p className="text-sm text-[var(--ink-medium)]">Get paid</p>
+                            </div>
+                            <span className="hidden sm:block w-px h-8 bg-[var(--border-paper)]" />
+                            <div className="text-center">
+                                <p className="text-xs uppercase tracking-wider text-[var(--accent-gold)] font-semibold">Stream</p>
+                                <p className="text-sm text-[var(--ink-medium)]">Pay</p>
+                            </div>
+                        </div>
+                        <p className="text-xs text-[var(--ink-light)] italic">Charged once, when the transaction is created.</p>
                     </div>
                 </PaperCard>
             </section>
