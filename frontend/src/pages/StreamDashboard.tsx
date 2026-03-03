@@ -86,12 +86,12 @@ export function StreamDashboard(): React.JSX.Element {
             const walletCount = indexResult?.properties?.count ?? 0n;
             setTotalCount(walletCount);
 
-            // Clear pending drafts only when the on-chain count has grown (= new stream confirmed)
+            // Track whether new streams were confirmed (pending drafts should be cleaned up)
+            const walletHex = activeTab === 'sending' ? address.toHex() : '';
+            const shouldClearPending = activeTab === 'sending'
+                && prevWalletCountRef.current !== null
+                && walletCount > prevWalletCountRef.current;
             if (activeTab === 'sending') {
-                const walletHex = address.toHex();
-                if (prevWalletCountRef.current !== null && walletCount > prevWalletCountRef.current) {
-                    clearPendingDrafts(walletHex);
-                }
                 prevWalletCountRef.current = walletCount;
                 setDrafts(getStreamDrafts(walletHex));
             }
@@ -132,6 +132,28 @@ export function StreamDashboard(): React.JSX.Element {
             }
 
             setStreams(fetchedStreams);
+
+            // Before clearing pending drafts, persist memos to bb_stream_memo_{streamId}
+            if (shouldClearPending) {
+                const pendingDrafts = getStreamDrafts(walletHex).filter((d) => d.status === 'pending' && d.memo);
+                for (const draft of pendingDrafts) {
+                    const draftToken = normalizeHex(draft.tokenAddress);
+                    const draftSender = draft.senderAddress ? normalizeHex(draft.senderAddress) : '';
+                    // Find the matching on-chain stream
+                    const matchedStream = fetchedStreams.find((s) => {
+                        if (normalizeHex(s.token) !== draftToken) return false;
+                        if (draftSender && normalizeHex(s.sender) !== draftSender) return false;
+                        // Already has a memo persisted — skip
+                        if (localStorage.getItem(`bb_stream_memo_${s.id}`)) return false;
+                        return true;
+                    });
+                    if (matchedStream && draft.memo) {
+                        localStorage.setItem(`bb_stream_memo_${matchedStream.id}`, draft.memo);
+                    }
+                }
+                clearPendingDrafts(walletHex);
+                setDrafts(getStreamDrafts(walletHex));
+            }
 
             // Refresh pending actions — clear any that have been confirmed on-chain
             const actions = getAllPendingActions();
