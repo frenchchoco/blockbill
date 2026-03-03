@@ -607,6 +607,9 @@ export function StreamView(): React.JSX.Element {
                                             {withdrawToAddr && !withdrawToValidation.isValid && withdrawToValidation.error && (
                                                 <p className="text-xs text-[var(--stamp-red)]">{withdrawToValidation.error}</p>
                                             )}
+                                            <p className="text-[10px] text-[var(--stamp-orange)] leading-snug">
+                                                ⚠ The target address must have transacted on OPNet at least once. Transfers to inactive addresses will fail on-chain.
+                                            </p>
                                             <div className="flex gap-2">
                                                 <button type="button" onClick={() => void handleWithdrawTo()}
                                                     disabled={withdrawing || !!pendingTx || !withdrawToValidation.isValid || withdrawable === 0n}
