@@ -318,23 +318,11 @@ export function Landing(): React.JSX.Element {
             <section className="text-center">
                 <PaperCard className="max-w-lg mx-auto text-center relative overflow-hidden">
                     <div className="absolute inset-0 bg-gradient-to-br from-[var(--accent-gold)]/5 to-transparent" />
-                    <div className="relative space-y-4">
+                    <div className="relative space-y-2">
                         <h2 className="text-2xl font-serif text-[var(--ink-dark)]">Simple Pricing</h2>
                         <p className="text-5xl font-serif text-[var(--accent-gold)] font-bold">0.5%</p>
                         <p className="text-lg text-[var(--ink-medium)]">per transaction. That&apos;s it.</p>
-                        <p className="text-sm text-[var(--ink-light)]">No subscriptions. No hidden fees.</p>
-                        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-2">
-                            <div className="text-center">
-                                <p className="text-xs uppercase tracking-wider text-[var(--accent-gold)] font-semibold">Invoice</p>
-                                <p className="text-sm text-[var(--ink-medium)]">Get paid</p>
-                            </div>
-                            <span className="hidden sm:block w-px h-8 bg-[var(--border-paper)]" />
-                            <div className="text-center">
-                                <p className="text-xs uppercase tracking-wider text-[var(--accent-gold)] font-semibold">Stream</p>
-                                <p className="text-sm text-[var(--ink-medium)]">Pay</p>
-                            </div>
-                        </div>
-                        <p className="text-xs text-[var(--ink-light)] italic">Charged once, when the transaction is created.</p>
+                        <p className="text-sm text-[var(--ink-light)]">No subscriptions. No hidden fees. Charged once on creation.</p>
                     </div>
                 </PaperCard>
             </section>
