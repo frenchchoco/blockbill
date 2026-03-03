@@ -37,6 +37,8 @@ export function StreamView(): React.JSX.Element {
     const [withdrawing, setWithdrawing] = useState(false);
     const [showWithdrawTo, setShowWithdrawTo] = useState(false);
     const [withdrawToAddr, setWithdrawToAddr] = useState('');
+    /** Whether the withdrawTo target is active (has public key registered) on OPNet. */
+    const [withdrawToActive, setWithdrawToActive] = useState<'idle' | 'checking' | 'active' | 'inactive'>('idle');
     const [topping, setTopping] = useState(false);
     const [showTopUp, setShowTopUp] = useState(false);
     const [topUpAmount, setTopUpAmount] = useState('');
@@ -59,6 +61,30 @@ export function StreamView(): React.JSX.Element {
     const hasHashMemo = useMemo(() => getMemoFromHash() !== null, []);
 
     const withdrawToValidation = useAddressValidation(withdrawToAddr, network);
+
+    // Check if the withdrawTo target address is active (registered) on OPNet
+    useEffect(() => {
+        if (!withdrawToAddr || !withdrawToValidation.isValid) {
+            setWithdrawToActive('idle');
+            return;
+        }
+        let cancelled = false;
+        setWithdrawToActive('checking');
+        const check = async (): Promise<void> => {
+            try {
+                const { providerService } = await import('../services/ProviderService');
+                const provider = providerService.getProvider(network);
+                const infoMap = await provider.getPublicKeysInfo(withdrawToAddr, false);
+                if (cancelled) return;
+                const hasKey = Object.keys(infoMap).length > 0;
+                setWithdrawToActive(hasKey ? 'active' : 'inactive');
+            } catch {
+                if (!cancelled) setWithdrawToActive('inactive');
+            }
+        };
+        void check();
+        return () => { cancelled = true; };
+    }, [withdrawToAddr, withdrawToValidation.isValid, network]);
 
     /** Set pendingTx with a 2-minute auto-clear timeout as safety valve. */
     const startPendingTx = useCallback((msg: string) => {
@@ -607,12 +633,20 @@ export function StreamView(): React.JSX.Element {
                                             {withdrawToAddr && !withdrawToValidation.isValid && withdrawToValidation.error && (
                                                 <p className="text-xs text-[var(--stamp-red)]">{withdrawToValidation.error}</p>
                                             )}
-                                            <p className="text-[10px] text-[var(--stamp-orange)] leading-snug">
-                                                ⚠ The target address must have transacted on OPNet at least once. Transfers to inactive addresses will fail on-chain.
-                                            </p>
+                                            {withdrawToActive === 'checking' && (
+                                                <p className="text-xs text-[var(--ink-light)] animate-pulse">Checking if address is active on OPNet…</p>
+                                            )}
+                                            {withdrawToActive === 'inactive' && (
+                                                <p className="text-xs text-[var(--stamp-red)]">
+                                                    ✕ This address has never transacted on OPNet. Transfers to inactive addresses will fail on-chain.
+                                                </p>
+                                            )}
+                                            {withdrawToActive === 'active' && (
+                                                <p className="text-xs text-[var(--stamp-green)]">✓ Address is active on OPNet</p>
+                                            )}
                                             <div className="flex gap-2">
                                                 <button type="button" onClick={() => void handleWithdrawTo()}
-                                                    disabled={withdrawing || !!pendingTx || !withdrawToValidation.isValid || withdrawable === 0n}
+                                                    disabled={withdrawing || !!pendingTx || !withdrawToValidation.isValid || withdrawable === 0n || withdrawToActive !== 'active'}
                                                     className="flex-1 py-2 bg-[var(--accent-gold)] text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
                                                     {withdrawing ? 'Sending...' : 'Withdraw To'}
                                                 </button>
