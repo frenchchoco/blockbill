@@ -289,15 +289,24 @@ export function Dashboard(): React.JSX.Element {
                         <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
                 </button>
-                {filteredInvoices.length > 0 && (
-                    <button type="button" onClick={exportCsv}
-                        className="ml-auto text-xs text-[var(--accent-gold)] hover:text-[var(--accent-gold-light)] transition-colors flex items-center gap-1">
+                <div className="ml-auto flex items-center gap-3">
+                    {filteredInvoices.length > 0 && (
+                        <button type="button" onClick={exportCsv}
+                            className="text-xs text-[var(--accent-gold)] hover:text-[var(--accent-gold-light)] transition-colors flex items-center gap-1">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Export CSV
+                        </button>
+                    )}
+                    <Link to="/create"
+                        className="text-xs text-white bg-[var(--accent-gold)] hover:bg-[var(--accent-gold-light)] px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1">
                         <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
                         </svg>
-                        Export CSV
-                    </button>
-                )}
+                        Create
+                    </Link>
+                </div>
             </div>
 
             {/* Error */}
