@@ -37,6 +37,8 @@ export function Dashboard(): React.JSX.Element {
     const [tokenDecimals, setTokenDecimals] = useState<Record<string, number>>({});
     const fetchedDecimalsRef = useRef<Set<string>>(new Set());
     const [pendingInvoices, setPendingInvoices] = useState<PendingInvoice[]>([]);
+    /** Track previous wallet invoice count to detect growth (= tx confirmed). */
+    const prevWalletCountRef = useRef<bigint | null>(null);
 
     // Load pending invoices from localStorage
     const walletHexForPending = address?.toHex();
@@ -55,6 +57,7 @@ export function Dashboard(): React.JSX.Element {
         setFetchError('');
         setTokenDecimals({});
         fetchedDecimalsRef.current.clear();
+        prevWalletCountRef.current = null;
         contractService.clearCache();
     }, [walletAddress]);
 
@@ -75,24 +78,25 @@ export function Dashboard(): React.JSX.Element {
             setTotalCount(walletCount);
 
             // Refresh pending invoices from localStorage.
-            // Clear entries older than 5 min (stale / abandoned).
-            // If on-chain wallet count > 0, also clear all pending (confirmed or replaced by on-chain data).
+            // Clear entries older than 15 min (stale / abandoned — a Bitcoin block takes ~10 min).
+            // Clear all pending only when on-chain wallet count GROWS (= new invoice confirmed).
             if (activeTab === 'created') {
                 const walletHex = address.toHex();
                 const current = getPendingInvoices(walletHex);
-                const STALE_MS = 5 * 60 * 1000;
+                const STALE_MS = 15 * 60 * 1000;
                 const now = Date.now();
                 const stale = current.filter((p) => now - p.createdAt > STALE_MS);
                 stale.forEach((p) => removePendingInvoice(p.pendingId));
 
-                if (walletCount > 0n) {
-                    // On-chain invoices exist — clear remaining pending (they're confirmed)
+                if (prevWalletCountRef.current !== null && walletCount > prevWalletCountRef.current) {
+                    // On-chain count grew — new invoice confirmed, clear all pending
                     clearPendingInvoices(walletHex);
                     setPendingInvoices([]);
                 } else {
-                    // No on-chain invoices yet — keep fresh pending as placeholder
+                    // Keep fresh pending as placeholder
                     setPendingInvoices(current.filter((p) => now - p.createdAt <= STALE_MS));
                 }
+                prevWalletCountRef.current = walletCount;
             }
 
             if (walletCount === 0n) {
@@ -252,7 +256,7 @@ export function Dashboard(): React.JSX.Element {
             <div className="flex gap-8 mb-6 border-b border-[var(--border-paper)]">
                 {(['created', 'received'] as const).map((tab) => (
                     <button key={tab} type="button"
-                        onClick={() => { setActiveTab(tab); setStatusFilter('all'); }}
+                        onClick={() => { setActiveTab(tab); setStatusFilter('all'); prevWalletCountRef.current = null; }}
                         className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px capitalize ${
                             activeTab === tab
                                 ? 'border-[var(--accent-gold)] text-[var(--ink-dark)]'

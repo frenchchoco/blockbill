@@ -12,9 +12,9 @@ import { contractService } from '../services/ContractService';
 import { providerService } from '../services/ProviderService';
 import { getKnownTokens, findToken, parseTokenAmount, formatTokenAmount, formatAddress } from '../config/tokens';
 import type { TokenInfo } from '../config/tokens';
-import { friendlyError } from '../utils/errors';
-import { getTxGasParams } from '../config/networks';
+import { friendlyError, isUserCancel } from '../utils/errors';
 import { saveStreamDraft, getStreamDrafts, markDraftPending } from '../utils/streamDrafts';
+import { useSendTransaction } from '../hooks/useSendTransaction';
 import { addFeeOnTop, FEE_PERCENT } from '../utils/fee';
 
 const STREAM_APPROVAL_KEY_PREFIX = 'bb_stream_approve_';
@@ -62,6 +62,7 @@ export function CreateStream(): React.JSX.Element {
     const { network } = useNetwork();
     const navigate = useNavigate();
     const currentBlock = useBlockNumber();
+    const { sendWithFeeSelector, FeeSheet } = useSendTransaction();
     const [searchParams, setSearchParams] = useSearchParams();
     const [form, setForm] = useState<StreamFormData>(INITIAL_FORM);
     const [submitting, setSubmitting] = useState(false);
@@ -300,13 +301,7 @@ export function CreateStream(): React.JSX.Element {
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
 
             toast.loading('Approve token spending in your wallet...');
-            await simulation.sendTransaction({
-                signer: null,
-                mldsaSigner: null,
-                refundTo: walletAddress,
-                ...getTxGasParams(network),
-                network,
-            });
+            await sendWithFeeSelector(simulation, { refundTo: walletAddress, network });
 
             toast.dismiss();
             toast.success('Approval broadcast — waiting for block confirmation');
@@ -314,10 +309,11 @@ export function CreateStream(): React.JSX.Element {
             localStorage.setItem(`${STREAM_APPROVAL_KEY_PREFIX}${form.tokenAddress}`, Date.now().toString());
         } catch (err: unknown) {
             toast.dismiss();
+            if (isUserCancel(err)) return;
             setApproveStatus('error');
             toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
         }
-    }, [walletAddress, address, form.tokenAddress, grossAmount, network, unlimitedApproval]);
+    }, [walletAddress, address, form.tokenAddress, grossAmount, network, unlimitedApproval, sendWithFeeSelector]);
 
     const handleCreate = useCallback(async () => {
         if (!walletAddress || !address || submitting) return;
@@ -350,13 +346,7 @@ export function CreateStream(): React.JSX.Element {
             toast.dismiss(loadingToast);
             const submitToast = toast.loading('Submitting transaction...');
 
-            const receipt = await simulation.sendTransaction({
-                signer: null,
-                mldsaSigner: null,
-                refundTo: walletAddress,
-                ...getTxGasParams(network),
-                network,
-            });
+            const receipt = await sendWithFeeSelector(simulation, { refundTo: walletAddress, network });
 
             toast.dismiss(submitToast);
 
@@ -399,11 +389,11 @@ export function CreateStream(): React.JSX.Element {
             void pollConfirmation();
         } catch (err: unknown) {
             toast.dismiss();
-            toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
+            if (!isUserCancel(err)) toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
         } finally {
             setSubmitting(false);
         }
-    }, [walletAddress, address, submitting, form, parsedAmount, grossAmount, parsedRate, endBlock, network, customToken, tokenValidation, recipientValidation, navigate, editingDraftId, customTokenSymbol, durationBlocks, currentBlock]);
+    }, [walletAddress, address, submitting, form, parsedAmount, grossAmount, parsedRate, endBlock, network, customToken, tokenValidation, recipientValidation, navigate, editingDraftId, customTokenSymbol, durationBlocks, currentBlock, sendWithFeeSelector]);
 
     const approved = approveStatus === 'done';
 
@@ -440,6 +430,7 @@ export function CreateStream(): React.JSX.Element {
 
     return (
         <>
+        {FeeSheet}
         {showSeal && (
             <SealAnimation
                 confirmed={sealConfirmed}

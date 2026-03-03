@@ -11,6 +11,8 @@ export interface PendingStreamAction {
     readonly streamId: number;
     readonly action: PendingActionType;
     readonly timestamp: number; // Date.now()
+    /** Pre-action value for comparison (e.g. totalDeposited before topUp). */
+    readonly preActionValue?: string;
 }
 
 /** Max age before auto-expiry (20 minutes — 2 blocks). */
@@ -35,9 +37,9 @@ function writeAll(actions: PendingStreamAction[]): void {
 }
 
 /** Record a pending action for a stream. Replaces any existing action for the same stream. */
-export function setPendingAction(streamId: number, action: PendingActionType): void {
+export function setPendingAction(streamId: number, action: PendingActionType, preActionValue?: bigint): void {
     const actions = readAll().filter((a) => a.streamId !== streamId);
-    actions.push({ streamId, action, timestamp: Date.now() });
+    actions.push({ streamId, action, timestamp: Date.now(), preActionValue: preActionValue?.toString() });
     writeAll(actions);
 }
 

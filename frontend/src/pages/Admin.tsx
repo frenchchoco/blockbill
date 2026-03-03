@@ -5,8 +5,8 @@ import { PaperCard } from '../components/common/PaperCard';
 import { useNetwork } from '../hooks/useNetwork';
 import { contractService } from '../services/ContractService';
 import { providerService } from '../services/ProviderService';
-import { getTxGasParams } from '../config/networks';
-import { friendlyError } from '../utils/errors';
+import { friendlyError, isUserCancel } from '../utils/errors';
+import { useSendTransaction } from '../hooks/useSendTransaction';
 
 export function Admin(): React.JSX.Element {
     const { walletAddress, address } = useWalletConnect();
@@ -18,6 +18,7 @@ export function Admin(): React.JSX.Element {
     const [streamStatus, setStreamStatus] = useState<'idle' | 'sending' | 'done' | 'error'>('idle');
     const [invoiceTxId, setInvoiceTxId] = useState<string | null>(null);
     const [streamTxId, setStreamTxId] = useState<string | null>(null);
+    const { sendWithFeeSelector, FeeSheet } = useSendTransaction();
 
     /* ── Validate target address is active on OPNet ──────────── */
     useEffect(() => {
@@ -54,21 +55,16 @@ export function Admin(): React.JSX.Element {
             const contract = contractService.getBlockBillContract(network, address);
             const simulation = await contract.setFeeRecipient(recipientAddr);
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            const receipt = await simulation.sendTransaction({
-                signer: null,
-                mldsaSigner: null,
-                refundTo: walletAddress,
-                ...getTxGasParams(network),
-                network,
-            });
+            const receipt = await sendWithFeeSelector(simulation, { refundTo: walletAddress, network });
             setInvoiceTxId(receipt.transactionId);
             setInvoiceStatus('done');
             toast.success('Invoice contract: fee recipient updated!');
         } catch (err: unknown) {
+            if (isUserCancel(err)) { setInvoiceStatus('idle'); return; }
             setInvoiceStatus('error');
             toast.error(friendlyError(err instanceof Error ? err.message : 'Failed'));
         }
-    }, [walletAddress, address, newRecipient, network, addrActive]);
+    }, [walletAddress, address, newRecipient, network, addrActive, sendWithFeeSelector]);
 
     /* ── Set fee recipient on Stream contract ────────────────── */
     const setOnStream = useCallback(async () => {
@@ -80,21 +76,16 @@ export function Admin(): React.JSX.Element {
             const contract = contractService.getStreamContract(network, address);
             const simulation = await contract.setFeeRecipient(recipientAddr);
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            const receipt = await simulation.sendTransaction({
-                signer: null,
-                mldsaSigner: null,
-                refundTo: walletAddress,
-                ...getTxGasParams(network),
-                network,
-            });
+            const receipt = await sendWithFeeSelector(simulation, { refundTo: walletAddress, network });
             setStreamTxId(receipt.transactionId);
             setStreamStatus('done');
             toast.success('Stream contract: fee recipient updated!');
         } catch (err: unknown) {
+            if (isUserCancel(err)) { setStreamStatus('idle'); return; }
             setStreamStatus('error');
             toast.error(friendlyError(err instanceof Error ? err.message : 'Failed'));
         }
-    }, [walletAddress, address, newRecipient, network, addrActive]);
+    }, [walletAddress, address, newRecipient, network, addrActive, sendWithFeeSelector]);
 
     /* ── Both at once ────────────────────────────────────────── */
     const setBoth = useCallback(async () => {
@@ -117,6 +108,7 @@ export function Admin(): React.JSX.Element {
 
     return (
         <div className="max-w-xl mx-auto py-10 space-y-6">
+            {FeeSheet}
             <PaperCard>
                 <h1 className="text-2xl font-serif text-[var(--ink-dark)] mb-1">Admin — Fee Recipient</h1>
                 <p className="text-sm text-[var(--ink-light)] mb-2">

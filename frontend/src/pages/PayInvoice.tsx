@@ -1,9 +1,10 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useWalletConnect } from '@btc-vision/walletconnect';
 import toast from 'react-hot-toast';
 import { PaperCard } from '../components/common/PaperCard';
 import { StampBadge } from '../components/common/StampBadge';
+import { SealAnimation } from '../components/common/SealAnimation';
 import { InvoiceStatus, isInvoiceExpired } from '../types/invoice';
 import type { InvoiceData } from '../types/invoice';
 import { useNetwork } from '../hooks/useNetwork';
@@ -11,16 +12,17 @@ import { useBlockNumber } from '../hooks/useBlockNumber';
 import { useTokenApproval } from '../hooks/useTokenApproval';
 import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
-import { friendlyError } from '../utils/errors';
+import { friendlyError, isUserCancel } from '../utils/errors';
 import { parseInvoiceProperties } from '../utils/invoice';
-import { getTxGasParams } from '../config/networks';
 import { netFromGross, calculateFee, FEE_PERCENT } from '../utils/fee';
+import { useSendTransaction } from '../hooks/useSendTransaction';
 const APPROVAL_KEY_PREFIX = 'bb_approve_';
 
 type StepStatus = 'waiting' | 'processing' | 'broadcast' | 'done' | 'error';
 
 export function PayInvoice(): React.JSX.Element {
     const { id } = useParams<{ id: string }>();
+    const navigate = useNavigate();
     const { walletAddress, address, openConnectModal } = useWalletConnect();
     const { network } = useNetwork();
     const currentBlock = useBlockNumber();
@@ -29,16 +31,48 @@ export function PayInvoice(): React.JSX.Element {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const { approve: approveToken, checkAllowance } = useTokenApproval();
+    const { sendWithFeeSelector, FeeSheet } = useSendTransaction();
     const [approveStatus, setApproveStatus] = useState<StepStatus>('waiting');
     const [payStatus, setPayStatus] = useState<StepStatus>('waiting');
     const [onChainDecimals, setOnChainDecimals] = useState<number | null>(null);
     const [unlimitedApproval, setUnlimitedApproval] = useState(false);
     const payingRef = useRef(false);
+    const [sealConfirmed, setSealConfirmed] = useState(false);
+    const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-    // Reset payingRef on unmount to prevent stale lock
+    // Cleanup on unmount
     useEffect(() => {
-        return () => { payingRef.current = false; };
+        return () => {
+            payingRef.current = false;
+            if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+        };
     }, []);
+
+    // Poll invoice status after payment broadcast (5s for 60s)
+    useEffect(() => {
+        if (payStatus !== 'done' || !id || sealConfirmed) return;
+        let ticks = 0;
+        const maxTicks = 12; // 12 × 5s = 60s
+        pollTimerRef.current = setInterval(async () => {
+            ticks++;
+            if (ticks > maxTicks) {
+                if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+                return;
+            }
+            try {
+                const contract = contractService.getBlockBillContract(network);
+                const result = await contract.getInvoice(BigInt(id));
+                if (result?.properties) {
+                    const inv = parseInvoiceProperties(BigInt(id), result.properties);
+                    if (inv.status === InvoiceStatus.Paid) {
+                        setSealConfirmed(true);
+                        if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+                    }
+                }
+            } catch { /* polling error, keep trying */ }
+        }, 5_000);
+        return () => { if (pollTimerRef.current) clearInterval(pollTimerRef.current); };
+    }, [payStatus, id, sealConfirmed, network]);
 
     useEffect(() => {
         if (!id || !/^\d+$/.test(id)) { setError('Invalid invoice ID'); setLoading(false); return; }
@@ -126,7 +160,7 @@ export function PayInvoice(): React.JSX.Element {
         setApproveStatus('processing');
 
         try {
-            await approveToken(invoice.token, unlimitedApproval ? undefined : invoice.totalAmount);
+            await approveToken(invoice.token, unlimitedApproval ? undefined : invoice.totalAmount, sendWithFeeSelector);
 
             toast.dismiss('approve-confirm');
             setApproveStatus('broadcast');
@@ -134,10 +168,11 @@ export function PayInvoice(): React.JSX.Element {
             toast.success('Approval broadcast — waiting for block confirmation');
         } catch (err: unknown) {
             toast.dismiss('approve-confirm');
+            if (isUserCancel(err)) return;
             setApproveStatus('error');
             toast.error(friendlyError(err instanceof Error ? err.message : 'Approval failed'));
         }
-    }, [walletAddress, invoice, approveToken, unlimitedApproval]);
+    }, [walletAddress, invoice, approveToken, unlimitedApproval, sendWithFeeSelector]);
 
     const handlePay = useCallback(async () => {
         if (!walletAddress || !id || payingRef.current) return;
@@ -155,22 +190,17 @@ export function PayInvoice(): React.JSX.Element {
                 throw new Error(friendlyError(simulation.revert));
             }
 
-            // Step 3: Send transaction (wallet handles signing)
-            await simulation.sendTransaction({
-                signer: null,
-                mldsaSigner: null,
-                refundTo: walletAddress,
-                ...getTxGasParams(network),
-                network,
-            });
+            // Step 3: Send transaction (user picks fee rate)
+            await sendWithFeeSelector(simulation, { refundTo: walletAddress, network });
 
             setPayStatus('done');
         } catch (err: unknown) {
             payingRef.current = false;
+            if (isUserCancel(err)) { setPayStatus('waiting'); return; }
             setPayStatus('error');
             toast.error(friendlyError(err instanceof Error ? err.message : 'Payment failed'));
         }
-    }, [walletAddress, address, id, network]);
+    }, [walletAddress, address, id, network, sendWithFeeSelector]);
 
     if (loading) {
         return (
@@ -228,40 +258,25 @@ export function PayInvoice(): React.JSX.Element {
     const feeAmount = calculateFee(invoice.totalAmount);
     const creatorReceives = netFromGross(invoice.totalAmount);
 
-    // Payment was broadcast — show success with navigation options
+    // Payment was broadcast — show SealAnimation with polling
     if (payStatus === 'done') {
         return (
-            <div className="max-w-2xl mx-auto">
-                <PaperCard className="text-center py-12">
-                    <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-[var(--stamp-green)]/10 flex items-center justify-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-[var(--stamp-green)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                    </div>
-                    <h2 className="text-2xl font-serif text-[var(--ink-dark)] mb-2">Payment Broadcast</h2>
-                    <p className="text-sm text-[var(--ink-medium)] mb-1">
-                        Your transaction has been sent to the network.
-                    </p>
-                    <p className="text-sm text-[var(--ink-light)] mb-8">
-                        The invoice status will update to <strong>PAID</strong> once the block is mined (~10 min).
-                    </p>
-                    <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                        <Link to={`/invoice/${id}`}
-                            className="inline-flex items-center justify-center px-6 py-3 bg-[var(--accent-gold)] text-white font-medium rounded-lg hover:bg-[var(--accent-gold-light)] transition-colors shadow-md">
-                            Track Invoice Status
-                        </Link>
-                        <Link to="/dashboard"
-                            className="inline-flex items-center justify-center px-6 py-3 border-2 border-[var(--border-paper)] text-[var(--ink-medium)] font-medium rounded-lg hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] transition-colors">
-                            Back to Dashboard
-                        </Link>
-                    </div>
-                </PaperCard>
-            </div>
+            <SealAnimation
+                confirmed={sealConfirmed}
+                onComplete={() => navigate(`/invoice/${id}`)}
+                stampLabel="PAID"
+                stampColor="#B71C1C"
+                confirmedTitle="Payment Confirmed"
+                confirmedSubtitle="Recorded on Bitcoin L1"
+                pendingStampLabel="BROADCASTING"
+                pendingStampColor="#B8860B"
+            />
         );
     }
 
     return (
         <div className="max-w-2xl mx-auto">
+            {FeeSheet}
             <PaperCard className="relative">
                 <div className="flex items-start justify-between mb-8 pb-6 border-b border-[var(--border-paper)]">
                     <div>

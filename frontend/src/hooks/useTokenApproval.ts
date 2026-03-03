@@ -7,12 +7,13 @@ import { useNetwork } from './useNetwork';
 import { providerService } from '../services/ProviderService';
 import { getBlockBillAddress } from '../config/contracts';
 import { getTxGasParams } from '../config/networks';
+import type { SendWithFeeSelectorFn } from './useSendTransaction';
 
 const MAX_UINT256 = 2n ** 256n - 1n;
 
 interface UseTokenApprovalReturn {
     readonly checkAllowance: (tokenAddress: string) => Promise<bigint>;
-    readonly approve: (tokenAddress: string, amount?: bigint) => Promise<string>;
+    readonly approve: (tokenAddress: string, amount?: bigint, sendFn?: SendWithFeeSelectorFn) => Promise<string>;
     readonly loading: boolean;
     readonly error: string | null;
 }
@@ -51,7 +52,7 @@ export function useTokenApproval(): UseTokenApprovalReturn {
     );
 
     const approve = useCallback(
-        async (tokenAddress: string, amount: bigint = MAX_UINT256): Promise<string> => {
+        async (tokenAddress: string, amount: bigint = MAX_UINT256, sendFn?: SendWithFeeSelectorFn): Promise<string> => {
             setLoading(true);
             setError(null);
             try {
@@ -70,13 +71,15 @@ export function useTokenApproval(): UseTokenApprovalReturn {
                     throw new Error(`Approval simulation reverted: ${simulation.revert}`);
                 }
 
-                const receipt = await simulation.sendTransaction({
-                    signer: null,
-                    mldsaSigner: null,
-                    refundTo: walletAddress,
-                    ...getTxGasParams(network),
-                    network,
-                });
+                const receipt = sendFn
+                    ? await sendFn(simulation, { refundTo: walletAddress, network })
+                    : await simulation.sendTransaction({
+                        signer: null,
+                        mldsaSigner: null,
+                        refundTo: walletAddress,
+                        ...getTxGasParams(network),
+                        network,
+                    });
 
                 return receipt.transactionId;
             } catch (err: unknown) {

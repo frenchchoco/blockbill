@@ -13,10 +13,10 @@ import { contractService } from '../services/ContractService';
 import { providerService } from '../services/ProviderService';
 import { getKnownTokens, findToken, parseTokenAmount, formatTokenAmount, formatAddress } from '../config/tokens';
 import type { TokenInfo } from '../config/tokens';
-import { friendlyError } from '../utils/errors';
-import { getTxGasParams } from '../config/networks';
+import { friendlyError, isUserCancel } from '../utils/errors';
 import { addFeeOnTop, FEE_PERCENT } from '../utils/fee';
 import { savePendingInvoice } from '../utils/invoicePending';
+import { useSendTransaction } from '../hooks/useSendTransaction';
 
 interface FormLineItem {
     readonly description: string;
@@ -70,6 +70,7 @@ export function CreateInvoice(): React.JSX.Element {
     const [customTokenSymbol, setCustomTokenSymbol] = useState<string | null>(null);
     const [balanceLoading, setBalanceLoading] = useState(false);
 
+    const { sendWithFeeSelector, FeeSheet } = useSendTransaction();
     const knownTokens = useMemo(() => getKnownTokens(network), [network]);
 
     const selectedToken: TokenInfo | undefined = useMemo(
@@ -230,17 +231,11 @@ export function CreateInvoice(): React.JSX.Element {
                 throw new Error(friendlyError(simulation.revert));
             }
 
-            // Step 3: Send transaction (wallet handles signing)
+            // Step 3: Send transaction (user picks fee rate)
             toast.dismiss(loadingToast);
             const submitToast = toast.loading('Submitting transaction...');
 
-            const receipt = await simulation.sendTransaction({
-                signer: null,
-                mldsaSigner: null,
-                refundTo: walletAddress,
-                ...getTxGasParams(network),
-                network,
-            });
+            const receipt = await sendWithFeeSelector(simulation, { refundTo: walletAddress, network });
 
             // Step 4: Show envelope immediately, poll for confirmation in background
             toast.dismiss(submitToast);
@@ -280,17 +275,18 @@ export function CreateInvoice(): React.JSX.Element {
             void pollConfirmation();
         } catch (err: unknown) {
             toast.dismiss();
-            toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
+            if (!isUserCancel(err)) toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
         } finally {
             setSubmitting(false);
         }
-    }, [walletAddress, address, submitting, form, parsedAmount, lineItemsTotal, network, customToken, openInvoice, tokenValidation, recipientValidation]);
+    }, [walletAddress, address, submitting, form, parsedAmount, lineItemsTotal, network, customToken, openInvoice, tokenValidation, recipientValidation, sendWithFeeSelector]);
 
     const inputCls = 'w-full px-4 py-2.5 bg-[var(--paper-bg)] border border-[var(--border-paper)] rounded-lg text-[var(--ink-dark)] placeholder:text-[var(--ink-light)] focus:outline-none focus:border-[var(--accent-gold)] focus:ring-1 focus:ring-[var(--accent-gold)] transition-colors';
     const labelCls = 'block text-sm font-serif font-medium text-[var(--ink-dark)] mb-1.5';
 
     return (
         <>
+        {FeeSheet}
         {showSeal && (
             <SealAnimation
                 confirmed={sealConfirmed}

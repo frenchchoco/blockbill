@@ -119,7 +119,15 @@ export function clearFeeRateOverride(network: Network): void {
 
 /* ── Dynamic gas parameters (fetched from RPC, cached) ───────── */
 
+export interface LiveFeeRates {
+    readonly low: number;
+    readonly medium: number;
+    readonly high: number;
+    readonly fetchedAt: number;
+}
+
 interface CachedGasParams {
+    rates: LiveFeeRates;
     feeRate: number;
     priorityFee: bigint;
     fetchedAt: number;
@@ -130,6 +138,7 @@ const gasCache = new Map<string, CachedGasParams>();
 
 const FALLBACK_FEE_RATE = 2;
 const FALLBACK_PRIORITY_FEE = 1_000n;
+const FALLBACK_RATES: LiveFeeRates = { low: FALLBACK_FEE_RATE, medium: FALLBACK_FEE_RATE, high: FALLBACK_FEE_RATE, fetchedAt: 0 };
 
 /** Fetch gas parameters from the RPC and cache them.
  *  Called automatically by getTxGasParams; can also be called eagerly. */
@@ -141,14 +150,28 @@ export async function refreshGasParams(network: Network): Promise<void> {
         const prioritySats = gas.gasPerSat > 0n
             ? gas.baseGas / gas.gasPerSat
             : FALLBACK_PRIORITY_FEE;
+        const now = Date.now();
         gasCache.set(key, {
+            rates: {
+                low: Math.ceil(gas.bitcoin.recommended.low),
+                medium: Math.ceil(gas.bitcoin.recommended.medium),
+                high: Math.ceil(gas.bitcoin.recommended.high),
+                fetchedAt: now,
+            },
             feeRate: Math.ceil(gas.bitcoin.recommended.medium),
             priorityFee: prioritySats > 0n ? prioritySats : FALLBACK_PRIORITY_FEE,
-            fetchedAt: Date.now(),
+            fetchedAt: now,
         });
     } catch {
         /* RPC unreachable — keep stale cache or use fallbacks */
     }
+}
+
+/** Force-refresh and return live fee rates from the RPC (bypasses cache TTL). */
+export async function fetchLiveFeeRates(network: Network): Promise<LiveFeeRates> {
+    await refreshGasParams(network);
+    const cached = gasCache.get(networkKey(network));
+    return cached?.rates ?? FALLBACK_RATES;
 }
 
 function getCachedGasParams(network: Network): CachedGasParams {
@@ -158,7 +181,7 @@ function getCachedGasParams(network: Network): CachedGasParams {
     // Trigger async refresh (non-blocking)
     void refreshGasParams(network);
     // Return stale cache if available, otherwise fallbacks
-    return cached ?? { feeRate: FALLBACK_FEE_RATE, priorityFee: FALLBACK_PRIORITY_FEE, fetchedAt: 0 };
+    return cached ?? { rates: FALLBACK_RATES, feeRate: FALLBACK_FEE_RATE, priorityFee: FALLBACK_PRIORITY_FEE, fetchedAt: 0 };
 }
 
 /* ── Convenience: all gas params for sendTransaction ─────────── */

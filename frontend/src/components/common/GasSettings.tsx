@@ -9,7 +9,9 @@ import {
     getMaxGasSats,
     setMaxGasSatsOverride,
     clearMaxGasSatsOverride,
+    fetchLiveFeeRates,
 } from '../../config/networks';
+import type { LiveFeeRates } from '../../config/networks';
 
 interface GasSettingsProps {
     readonly network: Network;
@@ -19,15 +21,14 @@ interface GasSettingsProps {
 
 interface FeePreset {
     readonly label: string;
-    readonly rate: number;
-    readonly description: string;
+    readonly key: 'low' | 'medium' | 'high';
+    readonly fallback: number;
 }
 
 const FEE_PRESETS: FeePreset[] = [
-    { label: 'Slow', rate: 5, description: '~50 min' },
-    { label: 'Normal', rate: 15, description: '~30 min' },
-    { label: 'Fast', rate: 30, description: '~10 min' },
-    { label: 'Urgent', rate: 60, description: 'Next block' },
+    { label: 'Economy', key: 'low', fallback: 5 },
+    { label: 'Standard', key: 'medium', fallback: 15 },
+    { label: 'Priority', key: 'high', fallback: 60 },
 ];
 
 function formatSats(sats: bigint): string {
@@ -42,9 +43,13 @@ export function GasSettings({ network, open, onClose }: GasSettingsProps): React
     // Fee rate state
     const currentFeeRate = getFeeRateOverride(network);
     const [feeMode, setFeeMode] = useState<'auto' | 'preset' | 'custom'>('auto');
-    const [feePresetIndex, setFeePresetIndex] = useState(1); // Normal
+    const [feePresetIndex, setFeePresetIndex] = useState(1); // Standard
     const [customFeeRate, setCustomFeeRate] = useState('');
     const [feeRateError, setFeeRateError] = useState('');
+
+    // Live fee rates from RPC
+    const [liveRates, setLiveRates] = useState<LiveFeeRates | null>(null);
+    const [ratesLoading, setRatesLoading] = useState(false);
 
     // Max gas budget state
     const defaultBudget = getDefaultMaxGasSats(network);
@@ -53,6 +58,16 @@ export function GasSettings({ network, open, onClose }: GasSettingsProps): React
     const [budgetError, setBudgetError] = useState('');
 
     const panelRef = useRef<HTMLDivElement>(null);
+
+    // Fetch live fee rates when opening
+    useEffect(() => {
+        if (!open) return;
+        setRatesLoading(true);
+        fetchLiveFeeRates(network)
+            .then((rates) => setLiveRates(rates))
+            .catch(() => { /* keep stale */ })
+            .finally(() => setRatesLoading(false));
+    }, [open, network]);
 
     // Sync state when opening
     useEffect(() => {
@@ -63,7 +78,11 @@ export function GasSettings({ network, open, onClose }: GasSettingsProps): React
             setFeeMode('auto');
             setCustomFeeRate('');
         } else {
-            const matchIdx = FEE_PRESETS.findIndex((p) => p.rate === currentFeeRate);
+            // Try to match against live rates first, then fallbacks
+            const rates = liveRates;
+            const matchIdx = rates
+                ? FEE_PRESETS.findIndex((p) => rates[p.key] === currentFeeRate)
+                : FEE_PRESETS.findIndex((p) => p.fallback === currentFeeRate);
             if (matchIdx >= 0) {
                 setFeeMode('preset');
                 setFeePresetIndex(matchIdx);
@@ -105,13 +124,18 @@ export function GasSettings({ network, open, onClose }: GasSettingsProps): React
         return () => document.removeEventListener('mousedown', handler);
     }, [open, onClose]);
 
+    const getPresetRate = useCallback((idx: number): number => {
+        const preset = FEE_PRESETS[idx];
+        return liveRates ? liveRates[preset.key] : preset.fallback;
+    }, [liveRates]);
+
     const getActiveFeeRate = useCallback((): number | null => {
         if (feeMode === 'auto') return null; // means "let wallet decide"
-        if (feeMode === 'preset') return FEE_PRESETS[feePresetIndex].rate;
+        if (feeMode === 'preset') return getPresetRate(feePresetIndex);
         const v = Number(customFeeRate);
         if (!Number.isFinite(v) || v < 1 || v > 2000) return null;
         return v;
-    }, [feeMode, feePresetIndex, customFeeRate]);
+    }, [feeMode, feePresetIndex, customFeeRate, getPresetRate]);
 
     const handleCustomFeeChange = useCallback((raw: string) => {
         const cleaned = raw.replace(/[^0-9.]/g, '');
@@ -175,7 +199,7 @@ export function GasSettings({ network, open, onClose }: GasSettingsProps): React
 
     const isModified = currentFeeRate !== undefined || currentBudget !== defaultBudget;
     const hasError = !!feeRateError || !!budgetError;
-    const activeFeeRate = feeMode === 'auto' ? null : (feeMode === 'preset' ? FEE_PRESETS[feePresetIndex].rate : Number(customFeeRate) || null);
+    const activeFeeRate = feeMode === 'auto' ? null : (feeMode === 'preset' ? getPresetRate(feePresetIndex) : Number(customFeeRate) || null);
 
     return createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center">
@@ -251,10 +275,19 @@ export function GasSettings({ network, open, onClose }: GasSettingsProps): React
                             <span className="text-xs text-[var(--ink-light)]">Wallet decides</span>
                         </button>
 
+                        {/* Live indicator */}
+                        <div className="flex items-center gap-1.5 mb-2">
+                            <span className={`w-1.5 h-1.5 rounded-full ${ratesLoading ? 'bg-[var(--accent-gold)] animate-pulse' : liveRates ? 'bg-emerald-500' : 'bg-[var(--ink-light)]'}`} />
+                            <span className="text-[10px] text-[var(--ink-light)] uppercase tracking-wider">
+                                {ratesLoading ? 'Fetching rates...' : liveRates ? 'Live from network' : 'Using defaults'}
+                            </span>
+                        </div>
+
                         {/* Fee presets */}
-                        <div className="grid grid-cols-4 gap-1.5 mb-2">
+                        <div className="grid grid-cols-3 gap-1.5 mb-2">
                             {FEE_PRESETS.map((preset, idx) => {
                                 const isActive = feeMode === 'preset' && feePresetIndex === idx;
+                                const rate = getPresetRate(idx);
                                 return (
                                     <button
                                         key={preset.label}
@@ -267,8 +300,8 @@ export function GasSettings({ network, open, onClose }: GasSettingsProps): React
                                         }`}
                                     >
                                         <span className="font-medium text-[11px]">{preset.label}</span>
-                                        <span className="font-mono text-[var(--accent-gold)] font-semibold">{preset.rate}</span>
-                                        <span className="text-[9px] text-[var(--ink-light)]">{preset.description}</span>
+                                        <span className="font-mono text-[var(--accent-gold)] font-semibold">{rate}</span>
+                                        <span className="text-[9px] text-[var(--ink-light)]">sat/vB</span>
                                     </button>
                                 );
                             })}

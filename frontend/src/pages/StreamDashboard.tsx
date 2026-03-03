@@ -145,6 +145,8 @@ export function StreamDashboard(): React.JSX.Element {
                 else if (pa.action === 'resume' && s.status === StreamStatus.Active) clearPendingAction(pa.streamId);
                 // Cancel confirmed
                 else if (pa.action === 'cancel' && s.status === StreamStatus.Cancelled) clearPendingAction(pa.streamId);
+                // TopUp confirmed: totalDeposited grew past the pre-action value
+                else if (pa.action === 'topUp' && pa.preActionValue && s.totalDeposited > BigInt(pa.preActionValue)) clearPendingAction(pa.streamId);
             }
             setPendingActions(getAllPendingActions());
             setStreamReasons(getAllStreamReasons());

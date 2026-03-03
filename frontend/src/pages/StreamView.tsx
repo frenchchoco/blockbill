@@ -10,9 +10,9 @@ import { useNetwork } from '../hooks/useNetwork';
 import { useAddressValidation } from '../hooks/useAddressValidation';
 import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
-import { friendlyError } from '../utils/errors';
-import { getTxGasParams } from '../config/networks';
+import { friendlyError, isUserCancel } from '../utils/errors';
 import { getMemoFromHash, decryptMemo, encryptMemo, buildMemoUrl } from '../utils/streamMemo';
+import { useSendTransaction } from '../hooks/useSendTransaction';
 import { getStreamDrafts } from '../utils/streamDrafts';
 import { setPendingAction } from '../utils/streamPendingActions';
 import { setStreamReason, getStreamReason } from '../utils/streamReasons';
@@ -25,6 +25,7 @@ export function StreamView(): React.JSX.Element {
     const { id } = useParams<{ id: string }>();
     const { network } = useNetwork();
     const { walletAddress, address } = useWalletConnect();
+    const { sendWithFeeSelector, FeeSheet } = useSendTransaction();
     const [stream, setStream] = useState<StreamData | null>(null);
     const [withdrawable, setWithdrawable] = useState<bigint>(0n);
     const [loading, setLoading] = useState(true);
@@ -45,6 +46,7 @@ export function StreamView(): React.JSX.Element {
     const [topUpApproving, setTopUpApproving] = useState(false);
     const [topUpApproved, setTopUpApproved] = useState(false);
     const [topUpCheckingAllowance, setTopUpCheckingAllowance] = useState(false);
+    const [topUpAllowance, setTopUpAllowance] = useState<bigint>(0n);
     const [pausing, setPausing] = useState(false);
     const [cancelling, setCancelling] = useState(false);
     const [showCancelConfirm, setShowCancelConfirm] = useState(false);
@@ -95,10 +97,15 @@ export function StreamView(): React.JSX.Element {
         pendingTxTimerRef.current = setTimeout(() => setPendingTx(null), 120_000);
     }, []);
 
-    // Cleanup pending-tx timer on unmount to avoid state updates on unmounted component
+    /** Accelerated polling ref — polls every 5s for 60s after an action. */
+    const accelPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const fetchStreamRef = useRef<(showLoading?: boolean) => Promise<void>>(null!);
+
+    // Cleanup timers on unmount
     useEffect(() => {
         return () => {
             if (pendingTxTimerRef.current) clearTimeout(pendingTxTimerRef.current);
+            if (accelPollRef.current) clearInterval(accelPollRef.current);
         };
     }, []);
 
@@ -125,6 +132,21 @@ export function StreamView(): React.JSX.Element {
             setLoading(false);
         }
     }, [id, network]);
+    fetchStreamRef.current = fetchStream;
+
+    const startAcceleratedPoll = useCallback(() => {
+        if (accelPollRef.current) clearInterval(accelPollRef.current);
+        let ticks = 0;
+        accelPollRef.current = setInterval(() => {
+            ticks++;
+            if (ticks > 12) { // 12 × 5s = 60s
+                if (accelPollRef.current) clearInterval(accelPollRef.current);
+                accelPollRef.current = null;
+                return;
+            }
+            void fetchStreamRef.current(false);
+        }, 5_000);
+    }, []);
 
     useEffect(() => { void fetchStream(); }, [fetchStream]);
 
@@ -165,6 +187,8 @@ export function StreamView(): React.JSX.Element {
             setPendingTx(null);
             setLastTxId(null);
             if (pendingTxTimerRef.current) { clearTimeout(pendingTxTimerRef.current); pendingTxTimerRef.current = null; }
+            // Stop accelerated polling — the action has been confirmed on-chain
+            if (accelPollRef.current) { clearInterval(accelPollRef.current); accelPollRef.current = null; }
         }
         prevStreamSnapshotRef.current = snapshot;
     }, [stream?.status, stream?.totalDeposited, stream?.totalWithdrawn]);
@@ -260,19 +284,19 @@ export function StreamView(): React.JSX.Element {
             const contract = contractService.getStreamContract(network, address);
             const simulation = await contract.withdraw(BigInt(id));
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            const receipt = await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            const receipt = await sendWithFeeSelector(simulation, { refundTo: walletAddress!, network });
             const txId = receipt.transactionId;
             setLastTxId(txId);
             toast.success('Withdrawal broadcast! Will confirm in ~10 min.');
             setPendingAction(Number(id), 'withdraw');
             startPendingTx('Withdrawal pending confirmation…');
-            void fetchStream(false);
+            startAcceleratedPoll();
         } catch (err: unknown) {
-            toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
+            if (!isUserCancel(err)) toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
         } finally {
             setWithdrawing(false);
         }
-    }, [address, walletAddress, id, withdrawing, pendingTx, startPendingTx, network, fetchStream]);
+    }, [address, walletAddress, id, withdrawing, pendingTx, startPendingTx, startAcceleratedPoll, network]);
 
     const handleWithdrawTo = useCallback(async () => {
         if (!address || !id || withdrawing || pendingTx || !withdrawToAddr || !withdrawToValidation.isValid) return;
@@ -282,7 +306,7 @@ export function StreamView(): React.JSX.Element {
             const contract = contractService.getStreamContract(network, address);
             const simulation = await contract.withdrawTo(BigInt(id), toAddr);
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            const receipt = await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            const receipt = await sendWithFeeSelector(simulation, { refundTo: walletAddress!, network });
             const txId = receipt.transactionId;
             setLastTxId(txId);
             toast.success('WithdrawTo broadcast! Will confirm in ~10 min.');
@@ -290,18 +314,19 @@ export function StreamView(): React.JSX.Element {
             startPendingTx('WithdrawTo pending confirmation…');
             setShowWithdrawTo(false);
             setWithdrawToAddr('');
-            void fetchStream(false);
+            startAcceleratedPoll();
         } catch (err: unknown) {
-            toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
+            if (!isUserCancel(err)) toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
         } finally {
             setWithdrawing(false);
         }
-    }, [address, walletAddress, id, withdrawing, pendingTx, startPendingTx, withdrawToAddr, withdrawToValidation, network, fetchStream]);
+    }, [address, walletAddress, id, withdrawing, pendingTx, startPendingTx, startAcceleratedPoll, withdrawToAddr, withdrawToValidation, network]);
 
     // Check existing allowance when opening Top Up panel
     const handleOpenTopUp = useCallback(async () => {
         setShowTopUp(true);
         setTopUpApproved(false);
+        setTopUpAllowance(0n);
         if (!address || !stream) return;
         setTopUpCheckingAllowance(true);
         try {
@@ -312,9 +337,9 @@ export function StreamView(): React.JSX.Element {
             const spender = AddrClass.fromString(streamContractAddr);
             const result = await tokenContract.allowance(address, spender);
             const currentAllowance = result?.properties?.remaining ?? 0n;
-            // Only skip approve if allowance is very large (indicates unlimited approval).
-            // A small residual allowance (e.g. 1n) is NOT enough to cover an arbitrary top-up.
-            const UNLIMITED_THRESHOLD = 10n ** 18n; // 10^18 raw units
+            setTopUpAllowance(currentAllowance);
+            // Skip approve step if existing allowance is very large (unlimited approval)
+            const UNLIMITED_THRESHOLD = 10n ** 18n;
             if (currentAllowance >= UNLIMITED_THRESHOLD) {
                 setTopUpApproved(true);
             }
@@ -327,25 +352,30 @@ export function StreamView(): React.JSX.Element {
 
     const handleTopUpApprove = useCallback(async () => {
         if (!address || !stream || !topUpAmount) return;
+        const parsedAmt = (await import('../config/tokens')).parseTokenAmount(topUpAmount, decimals);
+        // Skip approval if existing allowance already covers the amount
+        if (topUpAllowance >= parsedAmt) {
+            setTopUpApproved(true);
+            return;
+        }
         setTopUpApproving(true);
         try {
             const { Address: AddrClass } = await import('@btc-vision/transaction');
             const { getBlockBillStreamAddress } = await import('../config/contracts');
-            const parsedAmt = (await import('../config/tokens')).parseTokenAmount(topUpAmount, decimals);
             const streamContractAddr = getBlockBillStreamAddress(network);
             const tokenContract = contractService.getTokenContract(stream.token, network, address);
             const spender = AddrClass.fromString(streamContractAddr);
             const simulation = await tokenContract.increaseAllowance(spender, parsedAmt);
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            await sendWithFeeSelector(simulation, { refundTo: walletAddress!, network });
             toast.success('Token approved for top-up!');
             setTopUpApproved(true);
         } catch (err: unknown) {
-            toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
+            if (!isUserCancel(err)) toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
         } finally {
             setTopUpApproving(false);
         }
-    }, [address, walletAddress, stream, topUpAmount, decimals, network]);
+    }, [address, walletAddress, stream, topUpAmount, topUpAllowance, decimals, network]);
 
     const handleTopUp = useCallback(async () => {
         if (!address || !id || topping || pendingTx || !topUpAmount) return;
@@ -356,21 +386,21 @@ export function StreamView(): React.JSX.Element {
             const contract = contractService.getStreamContract(network, address);
             const simulation = await contract.topUp(BigInt(id), parsedAmt);
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            const receipt = await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            const receipt = await sendWithFeeSelector(simulation, { refundTo: walletAddress!, network });
             setLastTxId(receipt.transactionId);
             toast.success('Top-up broadcast! Will confirm in ~10 min.');
-            setPendingAction(Number(id), 'topUp');
+            setPendingAction(Number(id), 'topUp', stream?.totalDeposited);
             startPendingTx('Top-up pending confirmation…');
             setShowTopUp(false);
             setTopUpAmount('');
             setTopUpApproved(false);
-            void fetchStream(false);
+            startAcceleratedPoll();
         } catch (err: unknown) {
-            toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
+            if (!isUserCancel(err)) toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
         } finally {
             setTopping(false);
         }
-    }, [address, walletAddress, id, topping, pendingTx, startPendingTx, topUpAmount, decimals, network, fetchStream]);
+    }, [address, walletAddress, id, topping, pendingTx, startPendingTx, startAcceleratedPoll, topUpAmount, decimals, network]);
 
     const handlePauseResume = useCallback(async (reason?: string) => {
         if (!address || !id || pausing || pendingTx || !stream) return;
@@ -382,7 +412,7 @@ export function StreamView(): React.JSX.Element {
                 ? await contract.resumeStream(BigInt(id))
                 : await contract.pauseStream(BigInt(id));
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            const receipt = await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            const receipt = await sendWithFeeSelector(simulation, { refundTo: walletAddress!, network });
             setLastTxId(receipt.transactionId);
             toast.success(`Stream ${isPaused ? 'resume' : 'pause'} broadcast!`);
             setPendingAction(Number(id), isPaused ? 'resume' : 'pause');
@@ -390,13 +420,13 @@ export function StreamView(): React.JSX.Element {
             startPendingTx(`${isPaused ? 'Resume' : 'Pause'} pending confirmation…`);
             setShowPauseConfirm(false);
             setPauseReason('');
-            void fetchStream(false);
+            startAcceleratedPoll();
         } catch (err: unknown) {
-            toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
+            if (!isUserCancel(err)) toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
         } finally {
             setPausing(false);
         }
-    }, [address, walletAddress, id, pausing, pendingTx, startPendingTx, stream, network, fetchStream]);
+    }, [address, walletAddress, id, pausing, pendingTx, startPendingTx, startAcceleratedPoll, stream, network]);
 
     const handleCancel = useCallback(async (reason?: string) => {
         if (!address || !id || cancelling || pendingTx) return;
@@ -405,7 +435,7 @@ export function StreamView(): React.JSX.Element {
             const contract = contractService.getStreamContract(network, address);
             const simulation = await contract.cancelStream(BigInt(id));
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            const receipt = await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            const receipt = await sendWithFeeSelector(simulation, { refundTo: walletAddress!, network });
             setLastTxId(receipt.transactionId);
             toast.success('Cancellation broadcast! Will confirm in ~10 min.');
             setPendingAction(Number(id), 'cancel');
@@ -413,13 +443,13 @@ export function StreamView(): React.JSX.Element {
             startPendingTx('Cancellation pending confirmation…');
             setShowCancelConfirm(false);
             setCancelReason('');
-            void fetchStream(false);
+            startAcceleratedPoll();
         } catch (err: unknown) {
-            toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
+            if (!isUserCancel(err)) toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
         } finally {
             setCancelling(false);
         }
-    }, [address, walletAddress, id, cancelling, pendingTx, startPendingTx, network, fetchStream]);
+    }, [address, walletAddress, id, cancelling, pendingTx, startPendingTx, startAcceleratedPoll, network]);
 
     /** Anyone can call withdraw() to route funds to the stored recipient. */
     const handleClaimForRecipient = useCallback(async () => {
@@ -430,18 +460,18 @@ export function StreamView(): React.JSX.Element {
             // withdraw() has no caller restriction — funds always go to the on-chain recipient.
             const simulation = await contract.withdraw(BigInt(id));
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            const receipt = await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            const receipt = await sendWithFeeSelector(simulation, { refundTo: walletAddress!, network });
             setLastTxId(receipt.transactionId);
             toast.success('Claim for recipient broadcast!');
             setPendingAction(Number(id), 'withdraw');
             startPendingTx('Claim pending confirmation…');
-            void fetchStream(false);
+            startAcceleratedPoll();
         } catch (err: unknown) {
-            toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
+            if (!isUserCancel(err)) toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
         } finally {
             setWithdrawing(false);
         }
-    }, [address, walletAddress, id, withdrawing, pendingTx, startPendingTx, stream, network, fetchStream]);
+    }, [address, walletAddress, id, withdrawing, pendingTx, startPendingTx, startAcceleratedPoll, stream, network]);
 
     const handleCopyLink = useCallback(async () => {
         try {
@@ -483,6 +513,7 @@ export function StreamView(): React.JSX.Element {
 
     return (
         <div className="max-w-2xl mx-auto">
+            {FeeSheet}
             <PaperCard className="relative">
                 {/* Header */}
                 <div className="flex items-start justify-between mb-8 pb-6 border-b border-[var(--border-paper)]">
