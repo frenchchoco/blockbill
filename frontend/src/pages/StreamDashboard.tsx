@@ -8,7 +8,7 @@ import { useNetwork } from '../hooks/useNetwork';
 import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
 import { friendlyError } from '../utils/errors';
-import { getStreamDrafts, deleteStreamDraft, clearPendingDrafts } from '../utils/streamDrafts';
+import { getStreamDrafts, deleteStreamDraft } from '../utils/streamDrafts';
 import type { StreamDraft } from '../utils/streamDrafts';
 import { parseStreamProperties, normalizeHex } from '../utils/streamParser';
 import { getAllPendingActions, clearPendingAction } from '../utils/streamPendingActions';
@@ -42,8 +42,6 @@ export function StreamDashboard(): React.JSX.Element {
     const [totalCount, setTotalCount] = useState(0n);
     const [tokenDecimals, setTokenDecimals] = useState<Record<string, number>>({});
     const fetchedDecimalsRef = useRef<Set<string>>(new Set());
-    /** Track previous wallet stream count to detect growth (= tx confirmed). */
-    const prevWalletCountRef = useRef<bigint | null>(null);
     const [drafts, setDrafts] = useState<StreamDraft[]>([]);
     const [pendingActions, setPendingActions] = useState<PendingStreamAction[]>([]);
     const [streamReasons, setStreamReasons] = useState<StreamReason[]>([]);
@@ -86,13 +84,8 @@ export function StreamDashboard(): React.JSX.Element {
             const walletCount = indexResult?.properties?.count ?? 0n;
             setTotalCount(walletCount);
 
-            // Track whether new streams were confirmed (pending drafts should be cleaned up)
             const walletHex = activeTab === 'sending' ? address.toHex() : '';
-            const shouldClearPending = activeTab === 'sending'
-                && prevWalletCountRef.current !== null
-                && walletCount > prevWalletCountRef.current;
             if (activeTab === 'sending') {
-                prevWalletCountRef.current = walletCount;
                 setDrafts(getStreamDrafts(walletHex));
             }
 
@@ -133,26 +126,32 @@ export function StreamDashboard(): React.JSX.Element {
 
             setStreams(fetchedStreams);
 
-            // Before clearing pending drafts, persist memos to bb_stream_memo_{streamId}
-            if (shouldClearPending) {
-                const pendingDrafts = getStreamDrafts(walletHex).filter((d) => d.status === 'pending' && d.memo);
+            // Match confirmed pending drafts → persist memos + clean up
+            if (activeTab === 'sending') {
+                const pendingDrafts = getStreamDrafts(walletHex).filter((d) => d.status === 'pending');
+                const claimedIds = new Set<number>();
+                let draftsCleaned = false;
                 for (const draft of pendingDrafts) {
                     const draftToken = normalizeHex(draft.tokenAddress);
                     const draftSender = draft.senderAddress ? normalizeHex(draft.senderAddress) : '';
-                    // Find the matching on-chain stream
-                    const matchedStream = fetchedStreams.find((s) => {
-                        if (normalizeHex(s.token) !== draftToken) return false;
-                        if (draftSender && normalizeHex(s.sender) !== draftSender) return false;
-                        // Already has a memo persisted — skip
-                        if (localStorage.getItem(`bb_stream_memo_${s.id}`)) return false;
-                        return true;
-                    });
-                    if (matchedStream && draft.memo) {
-                        localStorage.setItem(`bb_stream_memo_${matchedStream.id}`, draft.memo);
+                    const matchedStream = [...fetchedStreams]
+                        .sort((a, b) => b.id - a.id) // newest first
+                        .find((s) => {
+                            if (claimedIds.has(s.id)) return false;
+                            if (normalizeHex(s.token) !== draftToken) return false;
+                            if (draftSender && normalizeHex(s.sender) !== draftSender) return false;
+                            return true;
+                        });
+                    if (matchedStream) {
+                        claimedIds.add(matchedStream.id);
+                        if (draft.memo && !localStorage.getItem(`bb_stream_memo_${matchedStream.id}`)) {
+                            localStorage.setItem(`bb_stream_memo_${matchedStream.id}`, draft.memo);
+                        }
+                        deleteStreamDraft(draft.draftId);
+                        draftsCleaned = true;
                     }
                 }
-                clearPendingDrafts(walletHex);
-                setDrafts(getStreamDrafts(walletHex));
+                if (draftsCleaned) setDrafts(getStreamDrafts(walletHex));
             }
 
             // Refresh pending actions — clear any that have been confirmed on-chain
@@ -298,7 +297,7 @@ export function StreamDashboard(): React.JSX.Element {
             <div className="flex gap-8 mb-6 border-b border-[var(--border-paper)]">
                 {(['sending', 'receiving'] as const).map((tab) => (
                     <button key={tab} type="button"
-                        onClick={() => { setActiveTab(tab); setStatusFilter('all'); setStreams([]); setWithdrawables({}); prevWalletCountRef.current = null; }}
+                        onClick={() => { setActiveTab(tab); setStatusFilter('all'); setStreams([]); setWithdrawables({}); }}
                         className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px capitalize ${
                             activeTab === tab
                                 ? 'border-[var(--accent-gold)] text-[var(--ink-dark)]'

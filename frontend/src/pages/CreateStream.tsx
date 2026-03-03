@@ -381,7 +381,34 @@ export function CreateStream(): React.JSX.Element {
                     await new Promise((r) => setTimeout(r, 5000));
                     try {
                         const tx = await provider.getTransaction(txId);
-                        if (tx) { setSealConfirmed(true); return; }
+                        if (tx) {
+                            setSealConfirmed(true);
+                            // Best-effort: persist memo for the newly confirmed stream
+                            if (form.memo && address) {
+                                try {
+                                    const sc = contractService.getStreamContract(network);
+                                    const countRes = await sc.getStreamCount();
+                                    const total = Number(countRes?.properties?.count ?? 0n);
+                                    if (total > 0) {
+                                        const norm = address.toHex().replace(/^(0x)+/i, '').toLowerCase();
+                                        // Check last few streams (newest first) to find ours
+                                        for (let i = total; i >= Math.max(1, total - 5); i--) {
+                                            const sr = await sc.getStream(BigInt(i));
+                                            if (!sr?.properties) continue;
+                                            const sender = sr.properties.sender;
+                                            const hex = typeof sender === 'object' && sender !== null && 'toHex' in sender
+                                                ? (sender as { toHex(): string }).toHex()
+                                                : String(sender);
+                                            if (hex.replace(/^(0x)+/i, '').toLowerCase() === norm) {
+                                                localStorage.setItem(`bb_stream_memo_${i}`, form.memo);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                } catch { /* memo persistence is best-effort */ }
+                            }
+                            return;
+                        }
                     } catch { /* retry */ }
                 }
                 // polling timed out — user can click "Continue without waiting"
