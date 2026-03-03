@@ -249,7 +249,7 @@ export function StreamView(): React.JSX.Element {
         : 0;
 
     const ratePerDay = stream ? stream.ratePerBlock * BigInt(BLOCKS_PER_DAY) : 0n;
-    const exhausted = stream ? exhausted : false;
+    const exhausted = stream ? isStreamExhausted(stream) : false;
 
     // --- Action handlers ---
 
