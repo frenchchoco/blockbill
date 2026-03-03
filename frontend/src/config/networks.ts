@@ -25,7 +25,7 @@ const NETWORK_CONFIGS: Record<string, NetworkConfig> = {
         name: 'OPNet Testnet',
         rpcUrl: 'https://testnet.opnet.org',
         explorerUrl: 'https://testnet-explorer.opnet.org',
-        maxGasSats: 100_000n,
+        maxGasSats: 1_000_000n,
     },
     [networkKey(networks.regtest)]: {
         name: 'Regtest',
@@ -118,11 +118,17 @@ export function clearFeeRateOverride(network: Network): void {
 
 /* ── Convenience: all gas params for sendTransaction ─────────── */
 
-/** Returns `{ maximumAllowedSatToSpend, feeRate? }` ready to spread into sendTransaction(). */
-export function getTxGasParams(network: Network): { maximumAllowedSatToSpend: bigint; feeRate?: number } {
-    const feeRate = getFeeRateOverride(network);
+/** Returns gas params ready to spread into sendTransaction().
+ *  Includes priorityFee (required by OP_WALLET for OPNet interactions). */
+export function getTxGasParams(network: Network): {
+    maximumAllowedSatToSpend: bigint;
+    feeRate: number;
+    priorityFee: bigint;
+} {
+    const feeRate = getFeeRateOverride(network) ?? 1;
     return {
         maximumAllowedSatToSpend: getMaxGasSats(network),
-        ...(feeRate !== undefined ? { feeRate } : {}),
+        feeRate,
+        priorityFee: 50_000n,
     };
 }
