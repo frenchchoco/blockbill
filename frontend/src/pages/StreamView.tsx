@@ -15,6 +15,7 @@ import { getTxGasParams } from '../config/networks';
 import { getMemoFromHash, decryptMemo, encryptMemo, buildMemoUrl } from '../utils/streamMemo';
 import { getStreamDrafts } from '../utils/streamDrafts';
 import { setPendingAction } from '../utils/streamPendingActions';
+import { setStreamReason, getStreamReason } from '../utils/streamReasons';
 import { parseStreamProperties, normalizeHex } from '../utils/streamParser';
 import type { RawStreamProperties } from '../utils/streamParser';
 
@@ -45,6 +46,11 @@ export function StreamView(): React.JSX.Element {
     const [pausing, setPausing] = useState(false);
     const [cancelling, setCancelling] = useState(false);
     const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+    const [showPauseConfirm, setShowPauseConfirm] = useState(false);
+    const [pauseReason, setPauseReason] = useState('');
+    const [cancelReason, setCancelReason] = useState('');
+    /** Stored reason loaded from localStorage. */
+    const [storedReason, setStoredReason] = useState<string | null>(null);
     /** Non-null when a tx has been broadcast and is awaiting block confirmation. */
     const [pendingTx, setPendingTx] = useState<string | null>(null);
     /** Decrypted memo (from URL hash or localStorage draft). */
@@ -177,6 +183,18 @@ export function StreamView(): React.JSX.Element {
         void fetchDec();
         return () => { cancelled = true; };
     }, [stream?.token, network]);
+
+    // Load stored reason for paused/cancelled streams
+    useEffect(() => {
+        if (!stream) return;
+        if (stream.status === StreamStatus.Paused || stream.status === StreamStatus.Cancelled) {
+            const action = stream.status === StreamStatus.Cancelled ? 'cancel' : 'pause';
+            const r = getStreamReason(stream.id, action);
+            setStoredReason(r?.reason ?? null);
+        } else {
+            setStoredReason(null);
+        }
+    }, [stream?.id, stream?.status]);
 
     // QR code
     useEffect(() => {
@@ -319,7 +337,7 @@ export function StreamView(): React.JSX.Element {
         }
     }, [address, walletAddress, id, topping, pendingTx, startPendingTx, topUpAmount, decimals, network, fetchStream]);
 
-    const handlePauseResume = useCallback(async () => {
+    const handlePauseResume = useCallback(async (reason?: string) => {
         if (!address || !id || pausing || pendingTx || !stream) return;
         setPausing(true);
         const isPaused = stream.status === StreamStatus.Paused;
@@ -332,7 +350,10 @@ export function StreamView(): React.JSX.Element {
             await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
             toast.success(`Stream ${isPaused ? 'resume' : 'pause'} broadcast!`);
             setPendingAction(Number(id), isPaused ? 'resume' : 'pause');
+            if (!isPaused && reason?.trim()) setStreamReason(Number(id), 'pause', reason);
             startPendingTx(`${isPaused ? 'Resume' : 'Pause'} pending confirmation…`);
+            setShowPauseConfirm(false);
+            setPauseReason('');
             void fetchStream(false);
         } catch (err: unknown) {
             toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
@@ -341,7 +362,7 @@ export function StreamView(): React.JSX.Element {
         }
     }, [address, walletAddress, id, pausing, pendingTx, startPendingTx, stream, network, fetchStream]);
 
-    const handleCancel = useCallback(async () => {
+    const handleCancel = useCallback(async (reason?: string) => {
         if (!address || !id || cancelling || pendingTx) return;
         setCancelling(true);
         try {
@@ -351,8 +372,10 @@ export function StreamView(): React.JSX.Element {
             await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
             toast.success('Cancellation broadcast! Will confirm in ~10 min.');
             setPendingAction(Number(id), 'cancel');
+            if (reason?.trim()) setStreamReason(Number(id), 'cancel', reason);
             startPendingTx('Cancellation pending confirmation…');
             setShowCancelConfirm(false);
+            setCancelReason('');
             void fetchStream(false);
         } catch (err: unknown) {
             toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
@@ -518,6 +541,20 @@ export function StreamView(): React.JSX.Element {
                     </div>
                 </div>
 
+                {/* Stored reason for pause/cancel */}
+                {storedReason && (stream.status === StreamStatus.Paused || stream.status === StreamStatus.Cancelled) && (
+                    <div className={`mb-8 px-4 py-3 rounded-lg border border-dashed ${
+                        stream.status === StreamStatus.Cancelled
+                            ? 'bg-[var(--stamp-red)]/5 border-[var(--stamp-red)]/30'
+                            : 'bg-[var(--stamp-orange)]/5 border-[var(--stamp-orange)]/30'
+                    }`}>
+                        <p className="text-xs text-[var(--ink-light)] font-serif mb-1">
+                            {stream.status === StreamStatus.Cancelled ? '🚫 Cancellation reason' : '⏸ Pause reason'}
+                        </p>
+                        <p className="text-sm text-[var(--ink-dark)] italic">{storedReason}</p>
+                    </div>
+                )}
+
                 {/* Encrypted Memo */}
                 {memo && (isSender || isRecipient) && (
                     <div className="mb-8 px-4 py-3 bg-[var(--paper-bg)] rounded-lg border border-dashed border-[var(--border-paper)]">
@@ -628,10 +665,29 @@ export function StreamView(): React.JSX.Element {
 
                                     {/* Pause / Resume */}
                                     {stream.status === StreamStatus.Active && (
-                                        <button type="button" onClick={() => void handlePauseResume()} disabled={pausing || !!pendingTx}
-                                            className="w-full py-2.5 border-2 border-[var(--stamp-orange)] text-[var(--stamp-orange)] font-medium rounded-lg text-sm hover:bg-[var(--stamp-orange)] hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                                            {pausing ? 'Processing...' : 'Pause Stream'}
-                                        </button>
+                                        !showPauseConfirm ? (
+                                            <button type="button" onClick={() => setShowPauseConfirm(true)} disabled={!!pendingTx}
+                                                className="w-full py-2.5 border-2 border-[var(--stamp-orange)] text-[var(--stamp-orange)] font-medium rounded-lg text-sm hover:bg-[var(--stamp-orange)] hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                                Pause Stream
+                                            </button>
+                                        ) : (
+                                            <div className="p-4 bg-[var(--stamp-orange)]/5 rounded-lg border border-[var(--stamp-orange)] space-y-3">
+                                                <p className="text-sm text-[var(--stamp-orange)] font-medium">⏸ Pause this stream?</p>
+                                                <input type="text" value={pauseReason} onChange={(e) => setPauseReason(e.target.value)}
+                                                    placeholder="Reason (optional)" maxLength={200}
+                                                    className={inputCls + ' text-sm'} />
+                                                <div className="flex gap-2">
+                                                    <button type="button" onClick={() => void handlePauseResume(pauseReason)} disabled={pausing || !!pendingTx}
+                                                        className="flex-1 py-2 bg-[var(--stamp-orange)] text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+                                                        {pausing ? 'Pausing...' : 'Confirm Pause'}
+                                                    </button>
+                                                    <button type="button" onClick={() => { setShowPauseConfirm(false); setPauseReason(''); }}
+                                                        className="px-4 py-2 text-[var(--ink-light)] text-sm hover:text-[var(--ink-dark)]">
+                                                        Cancel
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )
                                     )}
                                     {stream.status === StreamStatus.Paused && (
                                         <button type="button" onClick={() => void handlePauseResume()} disabled={pausing || !!pendingTx}
@@ -654,12 +710,15 @@ export function StreamView(): React.JSX.Element {
                                             <p className="text-sm text-[var(--ink-medium)]">
                                                 Cancelling the stream will immediately stop all payments. Any remaining deposited funds will be returned to you (sender). The recipient keeps what has already been streamed.
                                             </p>
+                                            <input type="text" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)}
+                                                placeholder="Reason (optional)" maxLength={200}
+                                                className={inputCls + ' text-sm'} />
                                             <div className="flex gap-2">
-                                                <button type="button" onClick={() => void handleCancel()} disabled={cancelling || !!pendingTx}
+                                                <button type="button" onClick={() => void handleCancel(cancelReason)} disabled={cancelling || !!pendingTx}
                                                     className="flex-1 py-2 bg-[var(--stamp-red)] text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
                                                     {cancelling ? 'Cancelling...' : 'Yes, Cancel Stream'}
                                                 </button>
-                                                <button type="button" onClick={() => setShowCancelConfirm(false)}
+                                                <button type="button" onClick={() => { setShowCancelConfirm(false); setCancelReason(''); }}
                                                     className="px-4 py-2 text-[var(--ink-light)] text-sm hover:text-[var(--ink-dark)]">
                                                     No, Keep It
                                                 </button>

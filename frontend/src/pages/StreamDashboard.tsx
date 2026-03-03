@@ -13,6 +13,8 @@ import type { StreamDraft } from '../utils/streamDrafts';
 import { parseStreamProperties, normalizeHex } from '../utils/streamParser';
 import { getAllPendingActions, clearPendingAction } from '../utils/streamPendingActions';
 import type { PendingStreamAction } from '../utils/streamPendingActions';
+import { getAllStreamReasons } from '../utils/streamReasons';
+import type { StreamReason } from '../utils/streamReasons';
 import type { RawStreamProperties } from '../utils/streamParser';
 
 type Tab = 'sending' | 'receiving';
@@ -44,6 +46,7 @@ export function StreamDashboard(): React.JSX.Element {
     const prevWalletCountRef = useRef<bigint | null>(null);
     const [drafts, setDrafts] = useState<StreamDraft[]>([]);
     const [pendingActions, setPendingActions] = useState<PendingStreamAction[]>([]);
+    const [streamReasons, setStreamReasons] = useState<StreamReason[]>([]);
 
     // Load local drafts scoped to current wallet
     const walletHexForDrafts = address?.toHex();
@@ -144,10 +147,11 @@ export function StreamDashboard(): React.JSX.Element {
                 else if (pa.action === 'cancel' && s.status === StreamStatus.Cancelled) clearPendingAction(pa.streamId);
             }
             setPendingActions(getAllPendingActions());
+            setStreamReasons(getAllStreamReasons());
 
-            // Fetch withdrawable for active streams (receiving tab)
-            if (activeTab === 'receiving') {
-                const activeStreams = fetchedStreams.filter((s) => s.status === StreamStatus.Active);
+            // Fetch withdrawable for active streams (both tabs — needed for accurate progress)
+            const activeStreams = fetchedStreams.filter((s) => s.status === StreamStatus.Active);
+            if (activeStreams.length > 0) {
                 const wdPromises = activeStreams.map((s) =>
                     contract.getWithdrawable(BigInt(s.id)).then((r) => ({
                         id: s.id,
@@ -412,12 +416,17 @@ export function StreamDashboard(): React.JSX.Element {
                         const dec = tokenDecimals[stream.token] ?? tok?.decimals ?? 8;
                         const wd = withdrawables[stream.id] ?? 0n;
                         const streamed = stream.totalWithdrawn + wd;
-                        const progressPercent = stream.totalDeposited > 0n
-                            ? Number((streamed * 10000n) / stream.totalDeposited) / 100
+                        const withdrawnPct = stream.totalDeposited > 0n
+                            ? Number((stream.totalWithdrawn * 10000n) / stream.totalDeposited) / 100
                             : 0;
+                        const withdrawablePct = stream.totalDeposited > 0n
+                            ? Number((wd * 10000n) / stream.totalDeposited) / 100
+                            : 0;
+                        const progressPercent = Math.min(withdrawnPct + withdrawablePct, 100);
                         const counterparty = activeTab === 'sending' ? stream.recipient : stream.sender;
                         const ratePerDay = stream.ratePerBlock * BigInt(BLOCKS_PER_DAY);
                         const pendingAction = pendingActions.find((pa) => pa.streamId === stream.id);
+                        const reason = streamReasons.find((r) => r.streamId === stream.id);
                         const pendingLabel: Record<string, string> = {
                             withdraw: 'Withdrawing…', pause: 'Pausing…', resume: 'Resuming…',
                             cancel: 'Cancelling…', topUp: 'Topping up…',
@@ -455,28 +464,58 @@ export function StreamDashboard(): React.JSX.Element {
                                         </span>
                                     </div>
 
-                                    {/* Mini progress bar */}
+                                    {/* Mini progress bar — two-tone: withdrawn (solid) + withdrawable (lighter) */}
                                     <div className="mb-2">
-                                        <div className="w-full h-1.5 bg-[var(--paper-bg)] rounded-full border border-[var(--border-paper)] overflow-hidden">
-                                            <div
-                                                className="stream-progress-bar-mini h-full"
-                                                style={{ width: `${Math.min(progressPercent, 100)}%` }}
-                                            />
+                                        <div className={`w-full h-2 bg-[var(--paper-bg)] rounded-full border overflow-hidden flex ${
+                                            stream.status === StreamStatus.Cancelled
+                                                ? 'border-[var(--stamp-grey)]/50 stream-bar-cancelled'
+                                                : stream.status === StreamStatus.Paused
+                                                    ? 'border-[var(--stamp-orange)]/50'
+                                                    : 'border-[var(--border-paper)]'
+                                        }`}>
+                                            {withdrawnPct > 0 && (
+                                                <div
+                                                    className={`h-full ${
+                                                        stream.status === StreamStatus.Cancelled
+                                                            ? 'bg-[var(--stamp-grey)]'
+                                                            : stream.status === StreamStatus.Paused
+                                                                ? 'bg-[var(--stamp-orange)]'
+                                                                : 'bg-[var(--accent-gold)] stream-bar-shimmer'
+                                                    }`}
+                                                    style={{ width: `${Math.min(withdrawnPct, 100)}%` }}
+                                                />
+                                            )}
+                                            {withdrawablePct > 0 && (
+                                                <div
+                                                    className={`h-full ${
+                                                        stream.status === StreamStatus.Cancelled
+                                                            ? 'bg-[var(--stamp-grey)]/40'
+                                                            : stream.status === StreamStatus.Paused
+                                                                ? 'bg-[var(--stamp-orange)]/40'
+                                                                : 'bg-[var(--accent-gold)]/40 stream-bar-shimmer'
+                                                    }`}
+                                                    style={{ width: `${Math.min(withdrawablePct, 100 - withdrawnPct)}%` }}
+                                                />
+                                            )}
                                         </div>
-                                        <div className="flex justify-between text-[10px] text-[var(--ink-light)] mt-0.5">
-                                            <span>{formatTokenAmount(streamed, dec)} streamed</span>
-                                            <span>{progressPercent.toFixed(1)}%</span>
+                                        <div className="flex justify-between text-[10px] mt-0.5">
+                                            <span className="text-[var(--ink-light)]">
+                                                {formatTokenAmount(stream.totalWithdrawn, dec)} withdrawn
+                                                {wd > 0n && (
+                                                    <span className="text-[var(--accent-gold)]"> + {formatTokenAmount(wd, dec)} claimable</span>
+                                                )}
+                                            </span>
+                                            <span className="text-[var(--ink-light)]">{progressPercent.toFixed(1)}%</span>
                                         </div>
                                     </div>
 
-                                    {/* Withdrawable highlight for receiving tab */}
-                                    {activeTab === 'receiving' && stream.status === StreamStatus.Active && wd > 0n && (
-                                        <div className="flex items-center justify-between px-3 py-1.5 bg-[var(--accent-gold)]/5 rounded-lg border border-[var(--accent-gold)]/30 mt-2">
-                                            <span className="text-xs text-[var(--accent-gold)] font-medium">Claimable now</span>
-                                            <span className="font-mono text-sm font-bold text-[var(--accent-gold)] stream-claimable-pulse">
-                                                {formatTokenAmount(wd, dec)} {tok?.symbol ?? ''}
-                                            </span>
-                                        </div>
+                                    {/* Optional reason for paused/cancelled */}
+                                    {reason?.reason && (stream.status === StreamStatus.Paused || stream.status === StreamStatus.Cancelled) && (
+                                        <p className={`text-[10px] italic truncate ${
+                                            stream.status === StreamStatus.Cancelled ? 'text-[var(--stamp-grey)]' : 'text-[var(--stamp-orange)]'
+                                        }`}>
+                                            💬 {reason.reason}
+                                        </p>
                                     )}
                                 </PaperCard>
                             </Link>

@@ -205,6 +205,44 @@ h1, h2, h3, h4, h5, h6 {
     animation: ink-pulse 2s ease-in-out infinite;
 }
 
+/* Shimmer / gleam effect for active stream progress bars */
+@keyframes bar-shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(200%); }
+}
+
+.stream-bar-shimmer {
+    position: relative;
+    overflow: hidden;
+}
+
+.stream-bar-shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.35) 40%,
+        rgba(255, 255, 255, 0.5) 50%,
+        rgba(255, 255, 255, 0.35) 60%,
+        transparent 100%
+    );
+    width: 50%;
+    animation: bar-shimmer 2.5s ease-in-out infinite;
+}
+
+/* Cancelled stream bar: diagonal stripes */
+.stream-bar-cancelled {
+    background-image: repeating-linear-gradient(
+        -45deg,
+        transparent,
+        transparent 3px,
+        rgba(158, 158, 158, 0.25) 3px,
+        rgba(158, 158, 158, 0.25) 6px
+    );
+}
+
 /* Guide walkthrough step transitions */
 @keyframes step-in-right {
     from { opacity: 0; transform: translateX(50px); }
