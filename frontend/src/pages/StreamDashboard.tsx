@@ -11,6 +11,8 @@ import { friendlyError } from '../utils/errors';
 import { getStreamDrafts, deleteStreamDraft, clearPendingDrafts } from '../utils/streamDrafts';
 import type { StreamDraft } from '../utils/streamDrafts';
 import { parseStreamProperties, normalizeHex } from '../utils/streamParser';
+import { getAllPendingActions, clearPendingAction } from '../utils/streamPendingActions';
+import type { PendingStreamAction } from '../utils/streamPendingActions';
 import type { RawStreamProperties } from '../utils/streamParser';
 
 type Tab = 'sending' | 'receiving';
@@ -41,6 +43,7 @@ export function StreamDashboard(): React.JSX.Element {
     /** Track previous wallet stream count to detect growth (= tx confirmed). */
     const prevWalletCountRef = useRef<bigint | null>(null);
     const [drafts, setDrafts] = useState<StreamDraft[]>([]);
+    const [pendingActions, setPendingActions] = useState<PendingStreamAction[]>([]);
 
     // Load local drafts scoped to current wallet
     const walletHexForDrafts = address?.toHex();
@@ -126,6 +129,21 @@ export function StreamDashboard(): React.JSX.Element {
             }
 
             setStreams(fetchedStreams);
+
+            // Refresh pending actions — clear any that have been confirmed on-chain
+            const actions = getAllPendingActions();
+            for (const pa of actions) {
+                const s = fetchedStreams.find((fs) => fs.id === pa.streamId);
+                if (!s) continue;
+                // Withdraw confirmed: totalWithdrawn increased (action is stale)
+                if (pa.action === 'withdraw') clearPendingAction(pa.streamId);
+                // Pause/resume confirmed when status changed
+                else if (pa.action === 'pause' && s.status === StreamStatus.Paused) clearPendingAction(pa.streamId);
+                else if (pa.action === 'resume' && s.status === StreamStatus.Active) clearPendingAction(pa.streamId);
+                // Cancel confirmed
+                else if (pa.action === 'cancel' && s.status === StreamStatus.Cancelled) clearPendingAction(pa.streamId);
+            }
+            setPendingActions(getAllPendingActions());
 
             // Fetch withdrawable for active streams (receiving tab)
             if (activeTab === 'receiving') {
@@ -399,10 +417,15 @@ export function StreamDashboard(): React.JSX.Element {
                             : 0;
                         const counterparty = activeTab === 'sending' ? stream.recipient : stream.sender;
                         const ratePerDay = stream.ratePerBlock * BigInt(BLOCKS_PER_DAY);
+                        const pendingAction = pendingActions.find((pa) => pa.streamId === stream.id);
+                        const pendingLabel: Record<string, string> = {
+                            withdraw: 'Withdrawing…', pause: 'Pausing…', resume: 'Resuming…',
+                            cancel: 'Cancelling…', topUp: 'Topping up…',
+                        };
 
                         return (
                             <Link key={stream.id} to={`/stream/${stream.id}`} className="block">
-                                <PaperCard className="!p-4 hover:shadow-lg transition-shadow">
+                                <PaperCard className={`!p-4 hover:shadow-lg transition-shadow ${pendingAction ? 'border-[var(--accent-gold)]/40' : ''}`}>
                                     <div className="flex items-center justify-between mb-3">
                                         <div className="flex items-center gap-3">
                                             <span className="font-mono text-sm text-[var(--ink-dark)] font-medium">#{stream.id}</span>
@@ -410,9 +433,16 @@ export function StreamDashboard(): React.JSX.Element {
                                                 {tok ? `${tok.icon} ${tok.symbol}` : formatAddress(stream.token)}
                                             </span>
                                         </div>
-                                        <span className={getStreamStampClass(stream.status)}>
-                                            {getStreamStatusLabel(stream.status)}
-                                        </span>
+                                        {pendingAction ? (
+                                            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent-gold)] bg-[var(--accent-gold)]/10 px-2.5 py-1 rounded-full">
+                                                <span className="inline-block w-2 h-2 rounded-full bg-[var(--accent-gold)] animate-pulse" />
+                                                {pendingLabel[pendingAction.action] ?? 'Pending…'}
+                                            </span>
+                                        ) : (
+                                            <span className={getStreamStampClass(stream.status)}>
+                                                {getStreamStatusLabel(stream.status)}
+                                            </span>
+                                        )}
                                     </div>
 
                                     <div className="flex items-center justify-between gap-2 mb-2">

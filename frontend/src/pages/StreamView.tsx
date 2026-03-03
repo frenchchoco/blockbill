@@ -14,6 +14,7 @@ import { friendlyError } from '../utils/errors';
 import { getTxGasParams } from '../config/networks';
 import { getMemoFromHash, decryptMemo, encryptMemo, buildMemoUrl } from '../utils/streamMemo';
 import { getStreamDrafts } from '../utils/streamDrafts';
+import { setPendingAction } from '../utils/streamPendingActions';
 import { parseStreamProperties, normalizeHex } from '../utils/streamParser';
 import type { RawStreamProperties } from '../utils/streamParser';
 
@@ -213,6 +214,7 @@ export function StreamView(): React.JSX.Element {
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
             await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
             toast.success('Withdrawal broadcast! Will confirm in ~10 min.');
+            setPendingAction(Number(id), 'withdraw');
             startPendingTx('Withdrawal pending confirmation…');
             void fetchStream(false);
         } catch (err: unknown) {
@@ -232,6 +234,7 @@ export function StreamView(): React.JSX.Element {
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
             await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
             toast.success('WithdrawTo broadcast! Will confirm in ~10 min.');
+            setPendingAction(Number(id), 'withdraw');
             startPendingTx('WithdrawTo pending confirmation…');
             setShowWithdrawTo(false);
             setWithdrawToAddr('');
@@ -303,6 +306,7 @@ export function StreamView(): React.JSX.Element {
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
             await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
             toast.success('Top-up broadcast! Will confirm in ~10 min.');
+            setPendingAction(Number(id), 'topUp');
             startPendingTx('Top-up pending confirmation…');
             setShowTopUp(false);
             setTopUpAmount('');
@@ -327,6 +331,7 @@ export function StreamView(): React.JSX.Element {
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
             await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
             toast.success(`Stream ${isPaused ? 'resume' : 'pause'} broadcast!`);
+            setPendingAction(Number(id), isPaused ? 'resume' : 'pause');
             startPendingTx(`${isPaused ? 'Resume' : 'Pause'} pending confirmation…`);
             void fetchStream(false);
         } catch (err: unknown) {
@@ -345,6 +350,7 @@ export function StreamView(): React.JSX.Element {
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
             await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
             toast.success('Cancellation broadcast! Will confirm in ~10 min.');
+            setPendingAction(Number(id), 'cancel');
             startPendingTx('Cancellation pending confirmation…');
             setShowCancelConfirm(false);
             void fetchStream(false);
@@ -366,6 +372,7 @@ export function StreamView(): React.JSX.Element {
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
             await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
             toast.success('Claim for recipient broadcast!');
+            setPendingAction(Number(id), 'withdraw');
             startPendingTx('Claim pending confirmation…');
             void fetchStream(false);
         } catch (err: unknown) {
