@@ -75,10 +75,11 @@ export function formatTokenAmount(amount: bigint, decimals: number): string {
 
 export function parseTokenAmount(value: string, decimals: number): bigint {
     if (!value || value === '0') return 0n;
-    // Reject negative input — return 0 instead of silently treating as positive
     if (value.startsWith('-')) return 0n;
     const cleaned = value.trim();
     if (!cleaned || cleaned === '0') return 0n;
+    // Guard: reject non-numeric input (e.g. pasted wallet address)
+    if (!/^\d+(\.\d*)?$/.test(cleaned)) return 0n;
     const parts = cleaned.split('.');
     const whole = BigInt(parts[0] || '0');
     const fracStr = (parts[1] || '').padEnd(decimals, '0').slice(0, decimals);

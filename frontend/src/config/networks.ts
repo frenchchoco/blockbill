@@ -129,6 +129,6 @@ export function getTxGasParams(network: Network): {
     return {
         maximumAllowedSatToSpend: getMaxGasSats(network),
         feeRate,
-        priorityFee: 50_000n,
+        priorityFee: 1_000n,
     };
 }
