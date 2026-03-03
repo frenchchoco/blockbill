@@ -4,7 +4,7 @@ import { useWalletConnect } from '@btc-vision/walletconnect';
 import toast from 'react-hot-toast';
 import QRCode from 'qrcode';
 import { PaperCard } from '../components/common/PaperCard';
-import { StreamStatus, getStreamStatusLabel, getStreamStampClass } from '../types/stream';
+import { StreamStatus, getStreamStatusLabel, getStreamStampClass, isStreamExhausted } from '../types/stream';
 import type { StreamData } from '../types/stream';
 import { useNetwork } from '../hooks/useNetwork';
 import { useAddressValidation } from '../hooks/useAddressValidation';
@@ -452,8 +452,8 @@ export function StreamView(): React.JSX.Element {
                         <h1 className="text-3xl font-serif text-[var(--ink-dark)]">STREAM #{id}</h1>
                         <p className="text-sm text-[var(--ink-light)] mt-1">Started at Block #{stream.startBlock.toString()}</p>
                     </div>
-                    <span className={getStreamStampClass(stream.status)}>
-                        {getStreamStatusLabel(stream.status)}
+                    <span className={getStreamStampClass(stream.status, isStreamExhausted(stream))}>
+                        {getStreamStatusLabel(stream.status, isStreamExhausted(stream))}
                     </span>
                 </div>
 

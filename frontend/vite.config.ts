@@ -32,6 +32,7 @@ export default defineConfig({
         exclude: ['crypto-browserify'],
     },
     build: {
+        chunkSizeWarningLimit: 2500, // OPNet SDK is ~2.4MB — already isolated in its own chunk
         commonjsOptions: {
             strictRequires: true,
             transformMixedEsModules: true

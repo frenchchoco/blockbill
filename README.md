@@ -33,10 +33,12 @@ Traditional invoicing requires trust: "Did they pay? When? How much?" And tradit
 - **Pause / Resume** — Sender can freeze and restart streams on-chain
 - **Top Up** — Add more tokens to extend stream duration without creating a new one
 - **Cancel & Refund** — Stop a stream and return all unstreamed tokens to sender
+- **Optional Pause/Cancel Reasons** — Add a note when pausing or cancelling (stored locally)
 - **Duration Estimates** — Shows exact blocks + approximate time (e.g., "4,320 blocks ≈ 1 month")
+- **Visual Progress Bars** — Shimmer effect on active streams, orange for paused, grey stripes for cancelled, two-tone withdrawn/claimable
 
 ### Platform
-- **0.5% Platform Fee** — Mainnet-viable revenue model, deducted on invoice payments only
+- **0.5% Platform Fee** — Mainnet-viable revenue model, deducted once on invoice or stream creation
 - **Unified Dashboard** — Invoices + Streams in one view with tab switching
 - **Paper/Stationery Theme** — A unique, warm design that stands out from dark-mode crypto UIs
 
@@ -115,7 +117,7 @@ A deliberately warm, light design using cream backgrounds, serif typography (Pla
 | Smart Contracts | AssemblyScript (OPNet btc-runtime) |
 | Frontend | React 19, Vite 7, TypeScript (strict) |
 | Styling | Tailwind CSS + CSS custom properties |
-| Wallet | @btc-vision/walletconnect v2 |
+| Wallet | @btc-vision/walletconnect v1 |
 | OPNet SDK | opnet, @btc-vision/bitcoin, @btc-vision/transaction |
 | Network | OPNet Testnet (Signet fork) |
 | Deployment | Vercel (frontend), OPNet testnet (contracts) |
@@ -163,7 +165,8 @@ Built for [vibecode.finance](https://vibecodedotfinance.vercel.app/challenge) We
 - **Shared Block Polling** — Single `useSyncExternalStore` instance drives expired-status updates across all components — no duplicated RPC calls
 - **Frontend Security** — Address validation (hex/bech32/P2OP), double-submission guards (`useRef` locks), graceful error handling, on-chain decimals resolution
 - **Mainnet Viable** — 0.5% sustainable revenue model, network-agnostic architecture (3-line config switch), no off-chain dependencies
-- **Unique UX** — Paper/stationery theme (anti-dark-mode), printable on-chain receipts, QR code sharing, CSV export, unified dashboard, in-app user guide
+- **Configurable Gas** — User-adjustable max gas per transaction via in-app settings, essential for mainnet fee wars
+- **Unique UX** — Paper/stationery theme (anti-dark-mode), printable on-chain receipts, QR code sharing, CSV export, unified dashboard, in-app user guide, animated progress bars
 
 **#opnetvibecode** [@opnetbtc](https://x.com/opnetbtc)
 

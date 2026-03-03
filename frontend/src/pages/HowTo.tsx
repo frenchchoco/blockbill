@@ -148,6 +148,7 @@ const STREAM_STEPS: readonly GuideStep[] = [
             'Sender: click "Pause" to freeze the stream, "Resume" to restart it',
             'Sender: "Top Up" adds more tokens to extend the stream duration',
             'Sender: "Cancel" stops the stream and returns unstreamed tokens',
+            'Optionally add a reason when pausing or cancelling (stored locally)',
             'All actions are on-chain — fully verifiable and immutable',
         ],
         icon: ico('M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75'),
@@ -158,9 +159,10 @@ const STREAM_STEPS: readonly GuideStep[] = [
         tips: [
             'Switch between "Invoices" and "Streams" using the top toggle',
             'Invoices: filter by Created/Received, then by status (All, Pending, Paid)',
-            'Streams: filter by Sending/Receiving, then by status (All, Active, Paused)',
+            'Streams: filter by Sending/Receiving, then by status (All, Active, Paused, Cancelled)',
+            'Stream progress bars show visual effects: shimmer for active, orange for paused, grey stripes for cancelled',
             'Expired invoices are automatically detected and marked',
-            'Use "Export CSV" to download invoice data for accounting',
+            'Use "Export CSV" to download invoice or stream data for accounting',
         ],
         icon: ico('M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z'),
     },
@@ -177,7 +179,7 @@ const FAQ: readonly FaqItem[] = [
     },
     {
         q: 'Is there a fee?',
-        a: 'BlockBill charges a 0.5% platform fee on invoice payments and stream deposits. The fee is added on top of the requested amount — the creator/recipient always receives the full amount they asked for. No monthly fees, no subscriptions.',
+        a: 'BlockBill charges a 0.5% fee, once, on invoice or stream creation. The fee is deducted automatically on-chain. No monthly fees, no subscriptions.',
     },
     {
         q: 'How do invoice deadlines work?',
@@ -193,7 +195,7 @@ const FAQ: readonly FaqItem[] = [
     },
     {
         q: 'Can I cancel or pause a stream?',
-        a: 'Yes. The sender can pause, resume, or cancel a stream at any time. Cancelling returns all unstreamed tokens to the sender. The recipient can always withdraw what has already accrued.',
+        a: 'Yes. The sender can pause, resume, or cancel a stream at any time. When pausing or cancelling, you can optionally add a reason (stored locally in your browser). Cancelling returns all unstreamed tokens to the sender. The recipient can always withdraw what has already accrued.',
     },
     {
         q: 'What network does BlockBill run on?',

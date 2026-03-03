@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useWalletConnect } from '@btc-vision/walletconnect';
 import { PaperCard } from '../components/common/PaperCard';
-import { StreamStatus, getStreamStatusLabel, getStreamStampClass } from '../types/stream';
+import { StreamStatus, getStreamStatusLabel, getStreamStampClass, isStreamExhausted } from '../types/stream';
 import type { StreamData } from '../types/stream';
 import { useNetwork } from '../hooks/useNetwork';
 import { contractService } from '../services/ContractService';
@@ -424,6 +424,7 @@ export function StreamDashboard(): React.JSX.Element {
                         const progressPercent = Math.min(withdrawnPct + withdrawablePct, 100);
                         const counterparty = activeTab === 'sending' ? stream.recipient : stream.sender;
                         const ratePerDay = stream.ratePerBlock * BigInt(BLOCKS_PER_DAY);
+                        const exhausted = isStreamExhausted(stream);
                         const pendingAction = pendingActions.find((pa) => pa.streamId === stream.id);
                         const reason = streamReasons.find((r) => r.streamId === stream.id);
                         const pendingLabel: Record<string, string> = {
@@ -447,8 +448,8 @@ export function StreamDashboard(): React.JSX.Element {
                                                 {pendingLabel[pendingAction.action] ?? 'Pending…'}
                                             </span>
                                         ) : (
-                                            <span className={getStreamStampClass(stream.status)}>
-                                                {getStreamStatusLabel(stream.status)}
+                                            <span className={getStreamStampClass(stream.status, isStreamExhausted(stream))}>
+                                                {getStreamStatusLabel(stream.status, isStreamExhausted(stream))}
                                             </span>
                                         )}
                                     </div>
@@ -470,7 +471,9 @@ export function StreamDashboard(): React.JSX.Element {
                                                 ? 'border-[var(--stamp-grey)]/50 stream-bar-cancelled'
                                                 : stream.status === StreamStatus.Paused
                                                     ? 'border-[var(--stamp-orange)]/50'
-                                                    : 'border-[var(--border-paper)]'
+                                                    : exhausted
+                                                        ? 'border-[var(--stamp-green)]/50'
+                                                        : 'border-[var(--border-paper)]'
                                         }`}>
                                             {withdrawnPct > 0 && (
                                                 <div
@@ -479,7 +482,9 @@ export function StreamDashboard(): React.JSX.Element {
                                                             ? 'bg-[var(--stamp-grey)]'
                                                             : stream.status === StreamStatus.Paused
                                                                 ? 'bg-[var(--stamp-orange)]'
-                                                                : 'bg-[var(--accent-gold)] stream-bar-shimmer'
+                                                                : exhausted
+                                                                    ? 'bg-[var(--stamp-green)]'
+                                                                    : 'bg-[var(--accent-gold)] stream-bar-shimmer'
                                                     }`}
                                                     style={{ width: `${Math.min(withdrawnPct, 100)}%` }}
                                                 />
@@ -491,7 +496,9 @@ export function StreamDashboard(): React.JSX.Element {
                                                             ? 'bg-[var(--stamp-grey)]/40'
                                                             : stream.status === StreamStatus.Paused
                                                                 ? 'bg-[var(--stamp-orange)]/40'
-                                                                : 'bg-[var(--accent-gold)]/40 stream-bar-shimmer'
+                                                                : exhausted
+                                                                    ? 'bg-[var(--stamp-green)]/40'
+                                                                    : 'bg-[var(--accent-gold)]/40 stream-bar-shimmer'
                                                     }`}
                                                     style={{ width: `${Math.min(withdrawablePct, 100 - withdrawnPct)}%` }}
                                                 />
