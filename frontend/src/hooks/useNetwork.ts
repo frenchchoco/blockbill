@@ -3,6 +3,7 @@ import { networks } from '@btc-vision/bitcoin';
 import type { Network } from '@btc-vision/bitcoin';
 import { useWalletConnect } from '@btc-vision/walletconnect';
 import { contractService } from '../services/ContractService';
+import { refreshGasParams } from '../config/networks';
 
 export function useNetwork(): {
     network: Network;
@@ -11,6 +12,11 @@ export function useNetwork(): {
 } {
     const { network: walletNetwork, walletAddress } = useWalletConnect();
     const [network, setNetwork] = useState<Network>(networks.opnetTestnet);
+
+    // Pre-fetch gas params on mount and when network changes
+    useEffect(() => {
+        void refreshGasParams(network);
+    }, [network]);
 
     useEffect(() => {
         if (walletAddress && walletNetwork) {

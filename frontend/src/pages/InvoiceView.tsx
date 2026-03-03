@@ -224,6 +224,16 @@ export function InvoiceView(): React.JSX.Element {
                             <span className="font-mono text-[var(--ink-dark)] text-right break-all">{formatAddress(invoice.paidBy)}</span>
                             <span className="text-[var(--ink-light)]">Paid at</span>
                             <span className="font-mono text-[var(--ink-dark)] text-right">Block #{invoice.paidAtBlock.toString()}</span>
+                            {invoice.btcTxHash && (<>
+                                <span className="text-[var(--ink-light)]">Transaction</span>
+                                <span className="text-right">
+                                    <a href={`https://mempool.opnet.org/fr/testnet4/tx/${invoice.btcTxHash}`}
+                                        target="_blank" rel="noopener noreferrer"
+                                        className="font-mono text-xs text-[var(--accent-gold)] hover:underline">
+                                        {formatAddress(invoice.btcTxHash)}
+                                    </a>
+                                </span>
+                            </>)}
                         </div>
                         <div className="mt-3 pt-2 border-t border-[var(--stamp-green)]/30">
                             <p className="text-xs text-[var(--stamp-green)] italic text-center">Permanently recorded on Bitcoin L1</p>

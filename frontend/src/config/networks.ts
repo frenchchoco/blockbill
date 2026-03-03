@@ -1,5 +1,6 @@
 import { networks } from '@btc-vision/bitcoin';
 import type { Network } from '@btc-vision/bitcoin';
+import { providerService } from '../services/ProviderService';
 
 export interface NetworkConfig {
     readonly name: string;
@@ -116,19 +117,63 @@ export function clearFeeRateOverride(network: Network): void {
     localStorage.removeItem(feeRateOverrideKey(network));
 }
 
+/* ── Dynamic gas parameters (fetched from RPC, cached) ───────── */
+
+interface CachedGasParams {
+    feeRate: number;
+    priorityFee: bigint;
+    fetchedAt: number;
+}
+
+const GAS_CACHE_TTL = 60_000; // 60 seconds
+const gasCache = new Map<string, CachedGasParams>();
+
+const FALLBACK_FEE_RATE = 2;
+const FALLBACK_PRIORITY_FEE = 1_000n;
+
+/** Fetch gas parameters from the RPC and cache them.
+ *  Called automatically by getTxGasParams; can also be called eagerly. */
+export async function refreshGasParams(network: Network): Promise<void> {
+    const key = networkKey(network);
+    try {
+        const provider = providerService.getProvider(network);
+        const gas = await provider.gasParameters();
+        const prioritySats = gas.gasPerSat > 0n
+            ? gas.baseGas / gas.gasPerSat
+            : FALLBACK_PRIORITY_FEE;
+        gasCache.set(key, {
+            feeRate: Math.ceil(gas.bitcoin.recommended.medium),
+            priorityFee: prioritySats > 0n ? prioritySats : FALLBACK_PRIORITY_FEE,
+            fetchedAt: Date.now(),
+        });
+    } catch {
+        /* RPC unreachable — keep stale cache or use fallbacks */
+    }
+}
+
+function getCachedGasParams(network: Network): CachedGasParams {
+    const key = networkKey(network);
+    const cached = gasCache.get(key);
+    if (cached && Date.now() - cached.fetchedAt < GAS_CACHE_TTL) return cached;
+    // Trigger async refresh (non-blocking)
+    void refreshGasParams(network);
+    // Return stale cache if available, otherwise fallbacks
+    return cached ?? { feeRate: FALLBACK_FEE_RATE, priorityFee: FALLBACK_PRIORITY_FEE, fetchedAt: 0 };
+}
+
 /* ── Convenience: all gas params for sendTransaction ─────────── */
 
 /** Returns gas params ready to spread into sendTransaction().
- *  Includes priorityFee (required by OP_WALLET for OPNet interactions). */
+ *  Uses RPC-fetched values when available, user overrides take precedence. */
 export function getTxGasParams(network: Network): {
     maximumAllowedSatToSpend: bigint;
     feeRate: number;
     priorityFee: bigint;
 } {
-    const feeRate = getFeeRateOverride(network) ?? 1;
+    const cached = getCachedGasParams(network);
     return {
         maximumAllowedSatToSpend: getMaxGasSats(network),
-        feeRate,
-        priorityFee: 1_000n,
+        feeRate: getFeeRateOverride(network) ?? cached.feeRate,
+        priorityFee: cached.priorityFee,
     };
 }

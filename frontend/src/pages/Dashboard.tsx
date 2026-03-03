@@ -366,6 +366,14 @@ export function Dashboard(): React.JSX.Element {
                                         <span className="font-mono text-xs text-[var(--ink-light)]">—</span>
                                     </div>
                                     <div className="col-span-4 sm:col-span-2 flex items-center justify-end gap-3">
+                                        {pi.txId && (
+                                            <a href={`https://mempool.opnet.org/fr/testnet4/tx/${pi.txId}`}
+                                                target="_blank" rel="noopener noreferrer"
+                                                className="text-xs text-[var(--accent-gold)] hover:underline"
+                                                title="View on mempool">
+                                                Tx
+                                            </a>
+                                        )}
                                         <button type="button" onClick={() => handleDeletePending(pi.pendingId)}
                                             className="text-xs text-[var(--ink-light)] hover:text-[var(--stamp-red)] transition-colors"
                                             title="Dismiss">
