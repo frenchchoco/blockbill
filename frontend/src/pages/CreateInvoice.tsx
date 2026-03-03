@@ -14,6 +14,8 @@ import { providerService } from '../services/ProviderService';
 import { getKnownTokens, findToken, parseTokenAmount, formatTokenAmount, formatAddress } from '../config/tokens';
 import type { TokenInfo } from '../config/tokens';
 import { friendlyError } from '../utils/errors';
+import { getTxGasParams } from '../config/networks';
+import { addFeeOnTop, FEE_PERCENT } from '../utils/fee';
 
 interface FormLineItem {
     readonly description: string;
@@ -40,11 +42,21 @@ const INITIAL_FORM: InvoiceFormData = {
 
 const MAX_LINE_ITEMS = 10;
 
+type DeadlinePreset = '1d' | '1w' | '1m' | '1y' | 'custom' | 'none';
+
+const DEADLINE_PRESETS: readonly { key: DeadlinePreset; label: string; blocks: number }[] = [
+    { key: '1d', label: '1 Day', blocks: 144 },
+    { key: '1w', label: '1 Week', blocks: 1_008 },
+    { key: '1m', label: '1 Month', blocks: 4_320 },
+    { key: '1y', label: '1 Year', blocks: 52_560 },
+];
+
 export function CreateInvoice(): React.JSX.Element {
     const { walletAddress, address } = useWalletConnect();
     const { network } = useNetwork();
     const navigate = useNavigate();
     const [form, setForm] = useState<InvoiceFormData>(INITIAL_FORM);
+    const [deadlinePreset, setDeadlinePreset] = useState<DeadlinePreset>('1m');
     const [showDetails, setShowDetails] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [customToken, setCustomToken] = useState(false);
@@ -98,9 +110,28 @@ export function CreateInvoice(): React.JSX.Element {
         [form.totalAmount, decimals],
     );
 
+    // Fee is added on top: payer pays grossAmount, creator receives parsedAmount.
+    const grossAmount = useMemo(() => addFeeOnTop(parsedAmount), [parsedAmount]);
+    const feeAmount = useMemo(() => grossAmount - parsedAmount, [grossAmount, parsedAmount]);
+
     const lineItemsTotal = useMemo(() => {
         return form.lineItems.reduce((sum, item) => sum + parseTokenAmount(item.amount || '0', decimals), 0n);
     }, [form.lineItems, decimals]);
+
+    const deadlineBlocks = useMemo((): number => {
+        if (deadlinePreset === 'none') return 0;
+        if (deadlinePreset === 'custom') return Math.max(0, Number(form.deadline) || 0);
+        const preset = DEADLINE_PRESETS.find(p => p.key === deadlinePreset);
+        return preset?.blocks ?? 0;
+    }, [deadlinePreset, form.deadline]);
+
+    const deadlineTimeEstimate = useMemo((): string => {
+        if (deadlineBlocks === 0) return '';
+        if (deadlineBlocks < 6) return `${Math.round(deadlineBlocks * 10)} min`;
+        if (deadlineBlocks < 144) return `${(deadlineBlocks / 6).toFixed(1)} hours`;
+        if (deadlineBlocks < 4_320) return `${(deadlineBlocks / 144).toFixed(1)} days`;
+        return `${(deadlineBlocks / 4_320).toFixed(1)} months`;
+    }, [deadlineBlocks]);
 
     // Validate custom addresses with AddressVerificator
     const tokenValidation = useAddressValidation(
@@ -125,7 +156,7 @@ export function CreateInvoice(): React.JSX.Element {
                 // Resolve the token address to hex if needed (e.g. custom P2OP input)
                 const resolvedHex = form.tokenAddress.startsWith('0x')
                     ? form.tokenAddress
-                    : '0x' + (await contractService.resolveAddress(form.tokenAddress, network, true)).toHex();
+                    : (await contractService.resolveAddress(form.tokenAddress, network, true)).toHex();
 
                 const tokenContract = contractService.getTokenContract(resolvedHex, network);
 
@@ -165,7 +196,7 @@ export function CreateInvoice(): React.JSX.Element {
         if (customToken && !tokenValidation.isValid) { toast.error(tokenValidation.error ?? 'Invalid token address'); return; }
         if (!openInvoice && !form.recipient) { toast.error('Please enter a recipient address'); return; }
         if (form.recipient && !recipientValidation.isValid) { toast.error(recipientValidation.error ?? 'Invalid recipient address'); return; }
-        if (form.lineItems.length > 0 && lineItemsTotal > 0n && lineItemsTotal !== parsedAmount) {
+        if (form.lineItems.length > 0 && lineItemsTotal !== parsedAmount) {
             toast.error('Line items total must equal the invoice amount');
             return;
         }
@@ -185,9 +216,12 @@ export function CreateInvoice(): React.JSX.Element {
             const contract = contractService.getBlockBillContract(network, address ?? undefined);
 
             // Step 1: Simulate
+            // Send relative deadline blocks — the contract computes absolute deadline
+            // as Blockchain.block.number + deadlineBlocks at execution time.
+            // grossAmount = parsedAmount + fee; payer pays gross, creator receives parsedAmount.
             const simulation = await contract.createInvoice(
-                tokenAddr, parsedAmount, recipientAddr, form.memo || '',
-                BigInt(form.deadline || '0'), 0, 0,
+                tokenAddr, grossAmount, recipientAddr, form.memo || '',
+                BigInt(deadlineBlocks), 0, 0,
             );
 
             // Step 2: Check revert
@@ -203,7 +237,7 @@ export function CreateInvoice(): React.JSX.Element {
                 signer: null,
                 mldsaSigner: null,
                 refundTo: walletAddress,
-                maximumAllowedSatToSpend: 100_000n,
+                ...getTxGasParams(network),
                 network,
             });
 
@@ -261,7 +295,7 @@ export function CreateInvoice(): React.JSX.Element {
                 </div>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* Form */}
                 <PaperCard>
                     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-6">
@@ -408,16 +442,56 @@ export function CreateInvoice(): React.JSX.Element {
                                             rows={2} maxLength={200} className={inputCls + ' resize-none'} />
                                         <span className="text-xs text-[var(--ink-light)] mt-1 block text-right">{form.memo.length}/200</span>
                                     </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        <div>
-                                            <label htmlFor="deadline" className={labelCls}>
-                                                Deadline (block #) <span className="text-xs font-normal text-[var(--ink-light)]">optional</span>
-                                            </label>
+                                    <div>
+                                        <label className={labelCls}>Expiration</label>
+                                        <div className="flex flex-wrap gap-2 mb-2">
+                                            {DEADLINE_PRESETS.map((p) => (
+                                                <button key={p.key} type="button"
+                                                    onClick={() => setDeadlinePreset(p.key)}
+                                                    className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                                                        deadlinePreset === p.key
+                                                            ? 'bg-[var(--accent-gold)] text-white'
+                                                            : 'border border-[var(--border-paper)] text-[var(--ink-medium)] hover:border-[var(--accent-gold)]'
+                                                    }`}>
+                                                    {p.label}
+                                                </button>
+                                            ))}
+                                            <button type="button"
+                                                onClick={() => setDeadlinePreset('custom')}
+                                                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                                                    deadlinePreset === 'custom'
+                                                        ? 'bg-[var(--accent-gold)] text-white'
+                                                        : 'border border-[var(--border-paper)] text-[var(--ink-medium)] hover:border-[var(--accent-gold)]'
+                                                }`}>
+                                                Custom
+                                            </button>
+                                            <button type="button"
+                                                onClick={() => setDeadlinePreset('none')}
+                                                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                                                    deadlinePreset === 'none'
+                                                        ? 'bg-[var(--stamp-grey)] text-white'
+                                                        : 'border border-[var(--border-paper)] text-[var(--ink-light)] hover:border-[var(--stamp-grey)]'
+                                                }`}>
+                                                None
+                                            </button>
+                                        </div>
+                                        {deadlinePreset === 'custom' && (
                                             <input id="deadline" type="number" value={form.deadline}
                                                 onChange={(e) => updateField('deadline', e.target.value)}
-                                                placeholder="No deadline" min="0" className={inputCls} />
-                                        </div>
-                                        <div />
+                                                placeholder="Number of blocks" min="1" className={inputCls + ' mb-2'} />
+                                        )}
+                                        {deadlinePreset !== 'none' && deadlineBlocks > 0 && (
+                                            <p className="text-xs text-[var(--ink-medium)] mt-1">
+                                                <span className="font-mono font-medium">{deadlineBlocks.toLocaleString()} blocks</span>
+                                                {deadlineTimeEstimate && (
+                                                    <span className="text-[var(--ink-light)]"> ({deadlineTimeEstimate})</span>
+                                                )}
+                                                <span className="text-[var(--ink-light)]"> from confirmation</span>
+                                            </p>
+                                        )}
+                                        <p className="text-xs text-[var(--ink-light)] italic mt-1">
+                                            Block times average ~10 min but vary. Deadlines are approximate.
+                                        </p>
                                     </div>
                                     {/* Line Items */}
                                     <div className="space-y-3">
@@ -453,6 +527,28 @@ export function CreateInvoice(): React.JSX.Element {
                             )}
                         </div>
 
+                        {/* Fee breakdown */}
+                        {parsedAmount > 0n && (
+                            <div className="px-4 py-3 bg-[var(--paper-bg)] border border-[var(--border-paper)] rounded-lg space-y-1.5">
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-[var(--ink-medium)]">You receive</span>
+                                    <span className="font-mono font-medium text-[var(--ink-dark)]">
+                                        {formatTokenAmount(parsedAmount, decimals)} {selectedToken?.symbol ?? customTokenSymbol ?? ''}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between text-xs text-[var(--ink-light)]">
+                                    <span>Platform fee ({FEE_PERCENT})</span>
+                                    <span className="font-mono">+{formatTokenAmount(feeAmount, decimals)} {selectedToken?.symbol ?? customTokenSymbol ?? ''}</span>
+                                </div>
+                                <div className="flex justify-between text-sm pt-1.5 border-t border-dashed border-[var(--border-paper)]">
+                                    <span className="text-[var(--ink-dark)] font-medium">Payer will pay</span>
+                                    <span className="font-mono font-semibold text-[var(--ink-dark)]">
+                                        {formatTokenAmount(grossAmount, decimals)} {selectedToken?.symbol ?? customTokenSymbol ?? ''}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Submit */}
                         <div className="pt-4 border-t border-[var(--border-paper)]">
                             <button type="submit"
@@ -465,7 +561,7 @@ export function CreateInvoice(): React.JSX.Element {
                 </PaperCard>
 
                 {/* Live Preview */}
-                <div className="hidden lg:block">
+                <div className="hidden md:block">
                     <div className="sticky top-8">
                         <p className="text-xs uppercase tracking-widest text-[var(--ink-light)] font-medium mb-3 text-center">Live Preview</p>
                         <PaperCard className="relative">
@@ -501,6 +597,17 @@ export function CreateInvoice(): React.JSX.Element {
                                     {form.recipient ? formatAddress(form.recipient) : openInvoice ? 'Open Invoice' : 'Required'}
                                 </span>
                             </div>
+                            {deadlineBlocks > 0 && (
+                                <div className="flex justify-between text-sm mb-2">
+                                    <span className="text-[var(--ink-light)]">Expires in</span>
+                                    <span className="text-xs text-[var(--ink-dark)]">
+                                        <span className="font-mono">{deadlineBlocks.toLocaleString()} blocks</span>
+                                        {deadlineTimeEstimate && (
+                                            <span className="text-[var(--ink-light)]"> ({deadlineTimeEstimate})</span>
+                                        )}
+                                    </span>
+                                </div>
+                            )}
                             {form.memo && (
                                 <div className="mb-4 p-3 bg-[var(--paper-bg)] border border-[var(--border-paper)] rounded">
                                     <p className="text-xs text-[var(--ink-medium)] italic leading-relaxed">&ldquo;{form.memo}&rdquo;</p>
@@ -523,13 +630,13 @@ export function CreateInvoice(): React.JSX.Element {
                             {parsedAmount > 0n && (
                                 <div className="mt-4 pt-3 border-t border-dashed border-[var(--border-paper)]">
                                     <div className="flex justify-between text-xs text-[var(--ink-light)]">
-                                        <span>Platform fee (0.5%)</span>
-                                        <span className="font-mono">{formatTokenAmount(parsedAmount * 50n / 10000n, decimals)}</span>
+                                        <span>Fee ({FEE_PERCENT})</span>
+                                        <span className="font-mono">+{formatTokenAmount(feeAmount, decimals)}</span>
                                     </div>
                                     <div className="flex justify-between text-xs mt-1">
-                                        <span className="text-[var(--ink-light)]">You receive</span>
-                                        <span className="font-mono font-medium text-[var(--ink-dark)]">
-                                            {formatTokenAmount(parsedAmount - (parsedAmount * 50n / 10000n), decimals)}
+                                        <span className="text-[var(--ink-dark)] font-medium">Payer pays</span>
+                                        <span className="font-mono font-semibold text-[var(--ink-dark)]">
+                                            {formatTokenAmount(grossAmount, decimals)}
                                         </span>
                                     </div>
                                 </div>

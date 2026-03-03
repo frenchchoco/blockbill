@@ -31,21 +31,6 @@ export const BLOCKBILL_ABI: BitcoinInterfaceAbi = [
         outputs: [{ name: 'success', type: ABIDataTypes.BOOL }],
     },
     {
-        name: 'cancelInvoice',
-        type: BitcoinAbiTypes.Function,
-        inputs: [{ name: 'invoiceId', type: ABIDataTypes.UINT256 }],
-        outputs: [{ name: 'success', type: ABIDataTypes.BOOL }],
-    },
-    {
-        name: 'markAsPaidBTC',
-        type: BitcoinAbiTypes.Function,
-        inputs: [
-            { name: 'invoiceId', type: ABIDataTypes.UINT256 },
-            { name: 'btcTxHash', type: ABIDataTypes.STRING },
-        ],
-        outputs: [{ name: 'success', type: ABIDataTypes.BOOL }],
-    },
-    {
         name: 'setFeeRecipient',
         type: BitcoinAbiTypes.Function,
         inputs: [{ name: 'newFeeRecipient', type: ABIDataTypes.ADDRESS }],
@@ -115,8 +100,6 @@ export interface IBlockBillContract extends BaseContractProperties {
     ): Promise<CallResult<{ invoiceId: bigint }, []>>;
 
     payInvoice(invoiceId: bigint): Promise<CallResult<{ success: boolean }, []>>;
-    cancelInvoice(invoiceId: bigint): Promise<CallResult<{ success: boolean }, []>>;
-    markAsPaidBTC(invoiceId: bigint, btcTxHash: string): Promise<CallResult<{ success: boolean }, []>>;
     setFeeRecipient(newFeeRecipient: Address): Promise<CallResult<{ success: boolean }, []>>;
 
     getInvoice(invoiceId: bigint): Promise<CallResult<{

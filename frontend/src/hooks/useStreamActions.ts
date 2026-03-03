@@ -3,6 +3,7 @@ import { useWalletConnect } from '@btc-vision/walletconnect';
 import type { Address } from '@btc-vision/transaction';
 import { useNetwork } from './useNetwork';
 import { contractService } from '../services/ContractService';
+import { getTxGasParams } from '../config/networks';
 
 export function useStreamActions(): {
     createStream: (recipient: Address, token: Address, totalAmount: bigint, ratePerBlock: bigint, endBlock: bigint) => Promise<bigint>;
@@ -18,10 +19,11 @@ export function useStreamActions(): {
     const { network } = useNetwork();
     const [loading, setLoading] = useState(false);
 
-    const ensureConnected = useCallback(() => {
+    const ensureConnected = useCallback((): { addr: Address; wallet: string } => {
         if (!address || !walletAddress) {
             throw new Error('Wallet not connected');
         }
+        return { addr: address, wallet: walletAddress };
     }, [address, walletAddress]);
 
     const createStream = useCallback(
@@ -29,10 +31,10 @@ export function useStreamActions(): {
             recipient: Address, token: Address, totalAmount: bigint,
             ratePerBlock: bigint, endBlock: bigint,
         ): Promise<bigint> => {
-            ensureConnected();
+            const { addr, wallet } = ensureConnected();
             setLoading(true);
             try {
-                const contract = contractService.getStreamContract(network, address!);
+                const contract = contractService.getStreamContract(network, addr);
                 const simulation = await contract.createStream(
                     recipient, token, totalAmount, ratePerBlock, endBlock,
                 );
@@ -44,8 +46,8 @@ export function useStreamActions(): {
                 await simulation.sendTransaction({
                     signer: null,
                     mldsaSigner: null,
-                    refundTo: walletAddress!,
-                    maximumAllowedSatToSpend: 100_000n,
+                    refundTo: wallet,
+                    ...getTxGasParams(network),
                     network,
                 });
 
@@ -54,15 +56,15 @@ export function useStreamActions(): {
                 setLoading(false);
             }
         },
-        [address, walletAddress, network, ensureConnected],
+        [network, ensureConnected],
     );
 
     const withdraw = useCallback(
         async (streamId: bigint): Promise<bigint> => {
-            ensureConnected();
+            const { addr, wallet } = ensureConnected();
             setLoading(true);
             try {
-                const contract = contractService.getStreamContract(network, address!);
+                const contract = contractService.getStreamContract(network, addr);
                 const simulation = await contract.withdraw(streamId);
 
                 if (simulation.revert) {
@@ -72,8 +74,8 @@ export function useStreamActions(): {
                 await simulation.sendTransaction({
                     signer: null,
                     mldsaSigner: null,
-                    refundTo: walletAddress!,
-                    maximumAllowedSatToSpend: 100_000n,
+                    refundTo: wallet,
+                    ...getTxGasParams(network),
                     network,
                 });
 
@@ -82,15 +84,15 @@ export function useStreamActions(): {
                 setLoading(false);
             }
         },
-        [address, walletAddress, network, ensureConnected],
+        [network, ensureConnected],
     );
 
     const withdrawTo = useCallback(
         async (streamId: bigint, to: Address): Promise<bigint> => {
-            ensureConnected();
+            const { addr, wallet } = ensureConnected();
             setLoading(true);
             try {
-                const contract = contractService.getStreamContract(network, address!);
+                const contract = contractService.getStreamContract(network, addr);
                 const simulation = await contract.withdrawTo(streamId, to);
 
                 if (simulation.revert) {
@@ -100,8 +102,8 @@ export function useStreamActions(): {
                 await simulation.sendTransaction({
                     signer: null,
                     mldsaSigner: null,
-                    refundTo: walletAddress!,
-                    maximumAllowedSatToSpend: 100_000n,
+                    refundTo: wallet,
+                    ...getTxGasParams(network),
                     network,
                 });
 
@@ -110,15 +112,15 @@ export function useStreamActions(): {
                 setLoading(false);
             }
         },
-        [address, walletAddress, network, ensureConnected],
+        [network, ensureConnected],
     );
 
     const topUp = useCallback(
         async (streamId: bigint, amount: bigint): Promise<void> => {
-            ensureConnected();
+            const { addr, wallet } = ensureConnected();
             setLoading(true);
             try {
-                const contract = contractService.getStreamContract(network, address!);
+                const contract = contractService.getStreamContract(network, addr);
                 const simulation = await contract.topUp(streamId, amount);
 
                 if (simulation.revert) {
@@ -128,23 +130,23 @@ export function useStreamActions(): {
                 await simulation.sendTransaction({
                     signer: null,
                     mldsaSigner: null,
-                    refundTo: walletAddress!,
-                    maximumAllowedSatToSpend: 100_000n,
+                    refundTo: wallet,
+                    ...getTxGasParams(network),
                     network,
                 });
             } finally {
                 setLoading(false);
             }
         },
-        [address, walletAddress, network, ensureConnected],
+        [network, ensureConnected],
     );
 
     const cancel = useCallback(
         async (streamId: bigint): Promise<void> => {
-            ensureConnected();
+            const { addr, wallet } = ensureConnected();
             setLoading(true);
             try {
-                const contract = contractService.getStreamContract(network, address!);
+                const contract = contractService.getStreamContract(network, addr);
                 const simulation = await contract.cancelStream(streamId);
 
                 if (simulation.revert) {
@@ -154,23 +156,23 @@ export function useStreamActions(): {
                 await simulation.sendTransaction({
                     signer: null,
                     mldsaSigner: null,
-                    refundTo: walletAddress!,
-                    maximumAllowedSatToSpend: 100_000n,
+                    refundTo: wallet,
+                    ...getTxGasParams(network),
                     network,
                 });
             } finally {
                 setLoading(false);
             }
         },
-        [address, walletAddress, network, ensureConnected],
+        [network, ensureConnected],
     );
 
     const pause = useCallback(
         async (streamId: bigint): Promise<void> => {
-            ensureConnected();
+            const { addr, wallet } = ensureConnected();
             setLoading(true);
             try {
-                const contract = contractService.getStreamContract(network, address!);
+                const contract = contractService.getStreamContract(network, addr);
                 const simulation = await contract.pauseStream(streamId);
 
                 if (simulation.revert) {
@@ -180,23 +182,23 @@ export function useStreamActions(): {
                 await simulation.sendTransaction({
                     signer: null,
                     mldsaSigner: null,
-                    refundTo: walletAddress!,
-                    maximumAllowedSatToSpend: 100_000n,
+                    refundTo: wallet,
+                    ...getTxGasParams(network),
                     network,
                 });
             } finally {
                 setLoading(false);
             }
         },
-        [address, walletAddress, network, ensureConnected],
+        [network, ensureConnected],
     );
 
     const resume = useCallback(
         async (streamId: bigint): Promise<void> => {
-            ensureConnected();
+            const { addr, wallet } = ensureConnected();
             setLoading(true);
             try {
-                const contract = contractService.getStreamContract(network, address!);
+                const contract = contractService.getStreamContract(network, addr);
                 const simulation = await contract.resumeStream(streamId);
 
                 if (simulation.revert) {
@@ -206,15 +208,15 @@ export function useStreamActions(): {
                 await simulation.sendTransaction({
                     signer: null,
                     mldsaSigner: null,
-                    refundTo: walletAddress!,
-                    maximumAllowedSatToSpend: 100_000n,
+                    refundTo: wallet,
+                    ...getTxGasParams(network),
                     network,
                 });
             } finally {
                 setLoading(false);
             }
         },
-        [address, walletAddress, network, ensureConnected],
+        [network, ensureConnected],
     );
 
     return { createStream, withdraw, withdrawTo, topUp, cancel, pause, resume, loading };

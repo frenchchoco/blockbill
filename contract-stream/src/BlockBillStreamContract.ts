@@ -471,8 +471,8 @@ export class BlockBillStreamContract extends ReentrancyGuard {
         const accumulatedBeforePause: u256 = this.loadU256At(this.pAccumulatedBeforePause, streamId);
         const status: u8 = this.loadU8At(this.pStatus, streamId);
 
-        // 3*32 (addresses) + 3*32 (u256s) + 4*8 (u64s) + 1 (u8) = 225 bytes
-        const writer: BytesWriter = new BytesWriter(256);
+        // 3*32 (addresses) + 4*32 (u256s) + 4*8 (u64s) + 1 (u8) = 257 bytes
+        const writer: BytesWriter = new BytesWriter(288);
         writer.writeAddress(sender);
         writer.writeAddress(recipient);
         writer.writeAddress(token);

@@ -1,46 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { Address } from '@btc-vision/transaction';
 import { useNetwork } from './useNetwork';
 import { contractService } from '../services/ContractService';
-import type { StreamData, StreamStatus } from '../types/stream';
-
-/** Raw properties shape returned by contract.getStream().properties */
-interface RawStreamProperties {
-    readonly sender?: Address;
-    readonly recipient?: Address;
-    readonly token?: Address;
-    readonly totalDeposited?: bigint;
-    readonly totalWithdrawn?: bigint;
-    readonly ratePerBlock?: bigint;
-    readonly startBlock?: bigint;
-    readonly endBlock?: bigint;
-    readonly lastWithdrawBlock?: bigint;
-    readonly pausedAtBlock?: bigint;
-    readonly accumulatedBeforePause?: bigint;
-    readonly status?: number;
-}
-
-/**
- * Parse raw contract result properties into a typed StreamData object.
- * Handles the Address-to-hex conversion and provides fallback defaults.
- */
-function parseStreamProperties(id: number, p: RawStreamProperties): StreamData {
-    return {
-        id,
-        sender: p.sender?.toHex() ?? '',
-        recipient: p.recipient?.toHex() ?? '',
-        token: p.token?.toHex() ?? '',
-        totalDeposited: p.totalDeposited ?? 0n,
-        totalWithdrawn: p.totalWithdrawn ?? 0n,
-        ratePerBlock: p.ratePerBlock ?? 0n,
-        startBlock: p.startBlock ?? 0n,
-        endBlock: p.endBlock ?? 0n,
-        lastWithdrawBlock: p.lastWithdrawBlock ?? 0n,
-        pausedAtBlock: p.pausedAtBlock ?? 0n,
-        accumulatedBeforePause: p.accumulatedBeforePause ?? 0n,
-        status: (p.status ?? 0) as StreamStatus,
-    };
-}
+import type { StreamData } from '../types/stream';
+import { parseStreamProperties } from '../utils/streamParser';
+import type { RawStreamProperties } from '../utils/streamParser';
 
 const POLL_INTERVAL = 10_000; // 10 seconds
 
@@ -77,7 +40,7 @@ export function useStream(streamId: number | null): {
             }
             const parsed = parseStreamProperties(
                 streamId,
-                streamResult.properties as unknown as RawStreamProperties,
+                streamResult.properties,
             );
             setStream(parsed);
 

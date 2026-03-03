@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useWalletConnect } from '@btc-vision/walletconnect';
 import toast from 'react-hot-toast';
@@ -11,33 +11,13 @@ import { useAddressValidation } from '../hooks/useAddressValidation';
 import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
 import { friendlyError } from '../utils/errors';
+import { getTxGasParams } from '../config/networks';
+import { getMemoFromHash, decryptMemo, encryptMemo, buildMemoUrl } from '../utils/streamMemo';
+import { getStreamDrafts } from '../utils/streamDrafts';
+import { parseStreamProperties, normalizeHex } from '../utils/streamParser';
+import type { RawStreamProperties } from '../utils/streamParser';
 
 const BLOCKS_PER_DAY = 144;
-
-/** Parse raw getStream result into StreamData. */
-function parseStreamProperties(id: number, props: Record<string, unknown>): StreamData {
-    return {
-        id,
-        sender: typeof props.sender === 'object' && props.sender !== null && 'toHex' in props.sender
-            ? '0x' + (props.sender as { toHex(): string }).toHex()
-            : String(props.sender ?? ''),
-        recipient: typeof props.recipient === 'object' && props.recipient !== null && 'toHex' in props.recipient
-            ? '0x' + (props.recipient as { toHex(): string }).toHex()
-            : String(props.recipient ?? ''),
-        token: typeof props.token === 'object' && props.token !== null && 'toHex' in props.token
-            ? '0x' + (props.token as { toHex(): string }).toHex()
-            : String(props.token ?? ''),
-        totalDeposited: BigInt(props.totalDeposited as bigint ?? 0n),
-        totalWithdrawn: BigInt(props.totalWithdrawn as bigint ?? 0n),
-        ratePerBlock: BigInt(props.ratePerBlock as bigint ?? 0n),
-        startBlock: BigInt(props.startBlock as bigint ?? 0n),
-        endBlock: BigInt(props.endBlock as bigint ?? 0n),
-        lastWithdrawBlock: BigInt(props.lastWithdrawBlock as bigint ?? 0n),
-        pausedAtBlock: BigInt(props.pausedAtBlock as bigint ?? 0n),
-        accumulatedBeforePause: BigInt(props.accumulatedBeforePause as bigint ?? 0n),
-        status: Number(props.status ?? 0) as StreamData['status'],
-    };
-}
 
 export function StreamView(): React.JSX.Element {
     const { id } = useParams<{ id: string }>();
@@ -60,11 +40,32 @@ export function StreamView(): React.JSX.Element {
     const [topUpAmount, setTopUpAmount] = useState('');
     const [topUpApproving, setTopUpApproving] = useState(false);
     const [topUpApproved, setTopUpApproved] = useState(false);
+    const [topUpCheckingAllowance, setTopUpCheckingAllowance] = useState(false);
     const [pausing, setPausing] = useState(false);
     const [cancelling, setCancelling] = useState(false);
     const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+    /** Non-null when a tx has been broadcast and is awaiting block confirmation. */
+    const [pendingTx, setPendingTx] = useState<string | null>(null);
+    /** Decrypted memo (from URL hash or localStorage draft). */
+    const [memo, setMemo] = useState<string | null>(null);
+    /** Whether the URL hash contains an encrypted memo (captured once at mount). */
+    const hasHashMemo = useMemo(() => getMemoFromHash() !== null, []);
 
     const withdrawToValidation = useAddressValidation(withdrawToAddr, network);
+
+    /** Set pendingTx with a 2-minute auto-clear timeout as safety valve. */
+    const startPendingTx = useCallback((msg: string) => {
+        setPendingTx(msg);
+        if (pendingTxTimerRef.current) clearTimeout(pendingTxTimerRef.current);
+        pendingTxTimerRef.current = setTimeout(() => setPendingTx(null), 120_000);
+    }, []);
+
+    // Cleanup pending-tx timer on unmount to avoid state updates on unmounted component
+    useEffect(() => {
+        return () => {
+            if (pendingTxTimerRef.current) clearTimeout(pendingTxTimerRef.current);
+        };
+    }, []);
 
     const fetchStream = useCallback(async (showLoading = true): Promise<void> => {
         if (!id || !/^\d+$/.test(id)) { setError('Invalid stream ID'); setLoading(false); return; }
@@ -79,7 +80,7 @@ export function StreamView(): React.JSX.Element {
 
             if (!streamResult?.properties) { setError('Stream not found'); return; }
 
-            const s = parseStreamProperties(Number(id), streamResult.properties as unknown as Record<string, unknown>);
+            const s = parseStreamProperties(Number(id), streamResult.properties as RawStreamProperties);
             setStream(s);
             setWithdrawable(withdrawableResult?.properties?.withdrawable ?? 0n);
         } catch (err: unknown) {
@@ -92,22 +93,72 @@ export function StreamView(): React.JSX.Element {
 
     useEffect(() => { void fetchStream(); }, [fetchStream]);
 
-    // Poll withdrawable every 10s for active streams
+    // Poll stream data periodically.
+    // - Every 10s: update withdrawable (for active streams)
+    // - Every 30s: full re-fetch (detects status changes after tx confirms)
     useEffect(() => {
-        if (!stream || stream.status !== StreamStatus.Active) return;
+        if (!stream) return;
+        let tick = 0;
         const interval = setInterval(async () => {
+            tick++;
             try {
-                const contract = contractService.getStreamContract(network);
-                const result = await contract.getWithdrawable(BigInt(stream.id));
-                if (result?.properties?.withdrawable !== undefined) {
-                    setWithdrawable(result.properties.withdrawable);
+                // Full refresh every 3rd tick (30s) to pick up status changes
+                if (tick % 3 === 0) {
+                    await fetchStream(false);
+                } else if (stream.status === StreamStatus.Active) {
+                    const contract = contractService.getStreamContract(network);
+                    const result = await contract.getWithdrawable(BigInt(stream.id));
+                    if (result?.properties?.withdrawable !== undefined) {
+                        setWithdrawable(result.properties.withdrawable);
+                    }
                 }
             } catch {
                 // ignore polling errors
             }
         }, 10_000);
         return () => clearInterval(interval);
-    }, [stream?.id, stream?.status, network]);
+    }, [stream?.id, stream?.status, network, fetchStream]);
+
+    // Clear pendingTx when stream data changes (status, amounts) or after 2-min timeout
+    const prevStreamSnapshotRef = useRef<string | undefined>(undefined);
+    const pendingTxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => {
+        if (!stream) return;
+        const snapshot = `${stream.status}:${stream.totalDeposited}:${stream.totalWithdrawn}`;
+        if (prevStreamSnapshotRef.current !== undefined && prevStreamSnapshotRef.current !== snapshot) {
+            setPendingTx(null);
+            if (pendingTxTimerRef.current) { clearTimeout(pendingTxTimerRef.current); pendingTxTimerRef.current = null; }
+        }
+        prevStreamSnapshotRef.current = snapshot;
+    }, [stream?.status, stream?.totalDeposited, stream?.totalWithdrawn]);
+
+    // Resolve memo: try URL hash first (shared link), then localStorage draft
+    useEffect(() => {
+        if (!stream) return;
+        let cancelled = false;
+
+        const resolve = async (): Promise<void> => {
+            // 1. Try encrypted memo from URL hash
+            const hashMemo = getMemoFromHash();
+            if (hashMemo) {
+                const plain = await decryptMemo(hashMemo, stream.sender, stream.recipient);
+                if (!cancelled && plain) { setMemo(plain); return; }
+            }
+            // 2. Fallback: check localStorage drafts (sender only)
+            const drafts = getStreamDrafts();
+            const match = drafts.find((d) =>
+                d.memo && d.tokenAddress &&
+                normalizeHex(d.tokenAddress) === normalizeHex(stream.token) &&
+                d.recipient && normalizeHex(d.recipient) === normalizeHex(stream.recipient) &&
+                (!d.senderAddress || normalizeHex(d.senderAddress) === normalizeHex(stream.sender)),
+            );
+            if (!cancelled && match?.memo) { setMemo(match.memo); }
+        };
+
+        void resolve();
+        return () => { cancelled = true; };
+    }, [stream?.id, stream?.sender, stream?.recipient, stream?.token]);
 
     // Fetch on-chain decimals
     useEffect(() => {
@@ -136,14 +187,15 @@ export function StreamView(): React.JSX.Element {
     const token = stream ? findToken(stream.token, network) : undefined;
     const decimals = onChainDecimals ?? token?.decimals ?? 8;
 
-    const normalizeHex = (h: string): string => h.replace(/^0x/i, '').toLowerCase();
     const walletHex = address ? normalizeHex(address.toHex()) : '';
     const isSender = stream ? walletHex !== '' && normalizeHex(stream.sender) === walletHex : false;
     const isRecipient = stream ? walletHex !== '' && normalizeHex(stream.recipient) === walletHex : false;
 
-    // Computed metrics
+    // Computed metrics (guard against BigInt underflow from stale RPC snapshots)
     const streamed = stream ? stream.totalWithdrawn + withdrawable : 0n;
-    const remaining = stream ? stream.totalDeposited - stream.totalWithdrawn - withdrawable : 0n;
+    const remaining = stream
+        ? (stream.totalDeposited > streamed ? stream.totalDeposited - streamed : 0n)
+        : 0n;
     const progressPercent = stream && stream.totalDeposited > 0n
         ? Number((streamed * 10000n) / stream.totalDeposited) / 100
         : 0;
@@ -153,32 +205,34 @@ export function StreamView(): React.JSX.Element {
     // --- Action handlers ---
 
     const handleWithdraw = useCallback(async () => {
-        if (!address || !id || withdrawing) return;
+        if (!address || !id || withdrawing || pendingTx) return;
         setWithdrawing(true);
         try {
             const contract = contractService.getStreamContract(network, address);
             const simulation = await contract.withdraw(BigInt(id));
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, maximumAllowedSatToSpend: 100_000n, network });
+            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
             toast.success('Withdrawal broadcast! Will confirm in ~10 min.');
+            startPendingTx('Withdrawal pending confirmation…');
             void fetchStream(false);
         } catch (err: unknown) {
             toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
         } finally {
             setWithdrawing(false);
         }
-    }, [address, walletAddress, id, withdrawing, network, fetchStream]);
+    }, [address, walletAddress, id, withdrawing, pendingTx, startPendingTx, network, fetchStream]);
 
     const handleWithdrawTo = useCallback(async () => {
-        if (!address || !id || withdrawing || !withdrawToAddr || !withdrawToValidation.isValid) return;
+        if (!address || !id || withdrawing || pendingTx || !withdrawToAddr || !withdrawToValidation.isValid) return;
         setWithdrawing(true);
         try {
             const toAddr = await contractService.resolveAddress(withdrawToAddr, network, false);
             const contract = contractService.getStreamContract(network, address);
             const simulation = await contract.withdrawTo(BigInt(id), toAddr);
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, maximumAllowedSatToSpend: 100_000n, network });
+            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
             toast.success('WithdrawTo broadcast! Will confirm in ~10 min.');
+            startPendingTx('WithdrawTo pending confirmation…');
             setShowWithdrawTo(false);
             setWithdrawToAddr('');
             void fetchStream(false);
@@ -187,7 +241,34 @@ export function StreamView(): React.JSX.Element {
         } finally {
             setWithdrawing(false);
         }
-    }, [address, walletAddress, id, withdrawing, withdrawToAddr, withdrawToValidation, network, fetchStream]);
+    }, [address, walletAddress, id, withdrawing, pendingTx, startPendingTx, withdrawToAddr, withdrawToValidation, network, fetchStream]);
+
+    // Check existing allowance when opening Top Up panel
+    const handleOpenTopUp = useCallback(async () => {
+        setShowTopUp(true);
+        setTopUpApproved(false);
+        if (!address || !stream) return;
+        setTopUpCheckingAllowance(true);
+        try {
+            const { Address: AddrClass } = await import('@btc-vision/transaction');
+            const { getBlockBillStreamAddress } = await import('../config/contracts');
+            const streamContractAddr = getBlockBillStreamAddress(network);
+            const tokenContract = contractService.getTokenContract(stream.token, network);
+            const spender = AddrClass.fromString(streamContractAddr);
+            const result = await tokenContract.allowance(address, spender);
+            const currentAllowance = result?.properties?.remaining ?? 0n;
+            // Only skip approve if allowance is very large (indicates unlimited approval).
+            // A small residual allowance (e.g. 1n) is NOT enough to cover an arbitrary top-up.
+            const UNLIMITED_THRESHOLD = 10n ** 18n; // 10^18 raw units
+            if (currentAllowance >= UNLIMITED_THRESHOLD) {
+                setTopUpApproved(true);
+            }
+        } catch {
+            // If check fails, show approve step as fallback
+        } finally {
+            setTopUpCheckingAllowance(false);
+        }
+    }, [address, stream, network]);
 
     const handleTopUpApprove = useCallback(async () => {
         if (!address || !stream || !topUpAmount) return;
@@ -201,7 +282,7 @@ export function StreamView(): React.JSX.Element {
             const spender = AddrClass.fromString(streamContractAddr);
             const simulation = await tokenContract.increaseAllowance(spender, parsedAmt);
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, maximumAllowedSatToSpend: 100_000n, network });
+            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
             toast.success('Token approved for top-up!');
             setTopUpApproved(true);
         } catch (err: unknown) {
@@ -212,7 +293,7 @@ export function StreamView(): React.JSX.Element {
     }, [address, walletAddress, stream, topUpAmount, decimals, network]);
 
     const handleTopUp = useCallback(async () => {
-        if (!address || !id || topping || !topUpAmount) return;
+        if (!address || !id || topping || pendingTx || !topUpAmount) return;
         setTopping(true);
         try {
             const { parseTokenAmount: parseAmt } = await import('../config/tokens');
@@ -220,8 +301,9 @@ export function StreamView(): React.JSX.Element {
             const contract = contractService.getStreamContract(network, address);
             const simulation = await contract.topUp(BigInt(id), parsedAmt);
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, maximumAllowedSatToSpend: 100_000n, network });
+            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
             toast.success('Top-up broadcast! Will confirm in ~10 min.');
+            startPendingTx('Top-up pending confirmation…');
             setShowTopUp(false);
             setTopUpAmount('');
             setTopUpApproved(false);
@@ -231,10 +313,10 @@ export function StreamView(): React.JSX.Element {
         } finally {
             setTopping(false);
         }
-    }, [address, walletAddress, id, topping, topUpAmount, decimals, network, fetchStream]);
+    }, [address, walletAddress, id, topping, pendingTx, startPendingTx, topUpAmount, decimals, network, fetchStream]);
 
     const handlePauseResume = useCallback(async () => {
-        if (!address || !id || pausing || !stream) return;
+        if (!address || !id || pausing || pendingTx || !stream) return;
         setPausing(true);
         const isPaused = stream.status === StreamStatus.Paused;
         try {
@@ -243,25 +325,27 @@ export function StreamView(): React.JSX.Element {
                 ? await contract.resumeStream(BigInt(id))
                 : await contract.pauseStream(BigInt(id));
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, maximumAllowedSatToSpend: 100_000n, network });
+            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
             toast.success(`Stream ${isPaused ? 'resume' : 'pause'} broadcast!`);
+            startPendingTx(`${isPaused ? 'Resume' : 'Pause'} pending confirmation…`);
             void fetchStream(false);
         } catch (err: unknown) {
             toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
         } finally {
             setPausing(false);
         }
-    }, [address, walletAddress, id, pausing, stream, network, fetchStream]);
+    }, [address, walletAddress, id, pausing, pendingTx, startPendingTx, stream, network, fetchStream]);
 
     const handleCancel = useCallback(async () => {
-        if (!address || !id || cancelling) return;
+        if (!address || !id || cancelling || pendingTx) return;
         setCancelling(true);
         try {
             const contract = contractService.getStreamContract(network, address);
             const simulation = await contract.cancelStream(BigInt(id));
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, maximumAllowedSatToSpend: 100_000n, network });
+            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
             toast.success('Cancellation broadcast! Will confirm in ~10 min.');
+            startPendingTx('Cancellation pending confirmation…');
             setShowCancelConfirm(false);
             void fetchStream(false);
         } catch (err: unknown) {
@@ -269,14 +353,45 @@ export function StreamView(): React.JSX.Element {
         } finally {
             setCancelling(false);
         }
-    }, [address, walletAddress, id, cancelling, network, fetchStream]);
+    }, [address, walletAddress, id, cancelling, pendingTx, startPendingTx, network, fetchStream]);
 
-    const handleCopyLink = useCallback(() => {
-        void navigator.clipboard.writeText(window.location.href).then(() => {
+    /** Anyone can call withdraw() to route funds to the stored recipient. */
+    const handleClaimForRecipient = useCallback(async () => {
+        if (!address || !id || withdrawing || pendingTx || !stream) return;
+        setWithdrawing(true);
+        try {
+            const contract = contractService.getStreamContract(network, address);
+            // withdraw() has no caller restriction — funds always go to the on-chain recipient.
+            const simulation = await contract.withdraw(BigInt(id));
+            if (simulation.revert) throw new Error(friendlyError(simulation.revert));
+            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            toast.success('Claim for recipient broadcast!');
+            startPendingTx('Claim pending confirmation…');
+            void fetchStream(false);
+        } catch (err: unknown) {
+            toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
+        } finally {
+            setWithdrawing(false);
+        }
+    }, [address, walletAddress, id, withdrawing, pendingTx, startPendingTx, stream, network, fetchStream]);
+
+    const handleCopyLink = useCallback(async () => {
+        try {
+            let url = window.location.origin + window.location.pathname;
+            // Include encrypted memo in share link if available
+            if (memo && stream) {
+                try {
+                    const encrypted = await encryptMemo(memo, stream.sender, stream.recipient);
+                    url = buildMemoUrl(url, encrypted);
+                } catch { /* fallback to plain URL */ }
+            }
+            await navigator.clipboard.writeText(url);
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
-        });
-    }, []);
+        } catch {
+            toast.error('Failed to copy link');
+        }
+    }, [memo, stream]);
 
     const inputCls = 'w-full px-4 py-2.5 bg-[var(--paper-bg)] border border-[var(--border-paper)] rounded-lg text-[var(--ink-dark)] placeholder:text-[var(--ink-light)] focus:outline-none focus:border-[var(--accent-gold)] focus:ring-1 focus:ring-[var(--accent-gold)] transition-colors';
 
@@ -293,7 +408,7 @@ export function StreamView(): React.JSX.Element {
         return (
             <div className="max-w-2xl mx-auto text-center py-20">
                 <p className="text-[var(--stamp-red)] text-lg font-serif">{error || 'Stream not found'}</p>
-                <Link to="/streams" className="text-[var(--accent-gold)] hover:underline mt-4 inline-block">Back to Streams</Link>
+                <Link to="/dashboard?tab=streams" className="text-[var(--accent-gold)] hover:underline mt-4 inline-block">Back to Dashboard</Link>
             </div>
         );
     }
@@ -391,13 +506,38 @@ export function StreamView(): React.JSX.Element {
                         <span className="font-mono text-xs text-[var(--ink-dark)] text-right">#{stream.startBlock.toString()}</span>
                         <span className="text-[var(--ink-light)]">End Block</span>
                         <span className="font-mono text-xs text-[var(--ink-dark)] text-right">
-                            {stream.endBlock > 0n ? `#${stream.endBlock.toString()}` : 'Infinite'}
+                            {stream.endBlock > 0n ? `#${stream.endBlock.toString()}` : 'Until exhausted'}
                         </span>
                     </div>
                 </div>
 
+                {/* Encrypted Memo */}
+                {memo && (isSender || isRecipient) && (
+                    <div className="mb-8 px-4 py-3 bg-[var(--paper-bg)] rounded-lg border border-dashed border-[var(--border-paper)]">
+                        <p className="text-xs text-[var(--ink-light)] font-serif mb-1 flex items-center gap-1">
+                            <span>🔒</span> Private Memo
+                        </p>
+                        <p className="text-sm text-[var(--ink-dark)] italic whitespace-pre-wrap">{memo}</p>
+                    </div>
+                )}
+                {hasHashMemo && !memo && !(isSender || isRecipient) && (
+                    <div className="mb-8 px-4 py-3 bg-[var(--paper-bg)] rounded-lg border border-dashed border-[var(--border-paper)]">
+                        <p className="text-xs text-[var(--ink-light)] font-serif flex items-center gap-1">
+                            <span>🔒</span> Encrypted memo — connect sender or recipient wallet to view.
+                        </p>
+                    </div>
+                )}
+
                 {/* Actions */}
                 <div className="space-y-4 pt-6 border-t border-[var(--border-paper)]">
+                    {/* Pending tx banner */}
+                    {pendingTx && (
+                        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-[var(--accent-gold)]/10 border border-[var(--accent-gold)]/30 animate-pulse">
+                            <span className="text-lg">⏳</span>
+                            <span className="text-sm text-[var(--accent-gold)] font-medium">{pendingTx}</span>
+                        </div>
+                    )}
+
                     {!walletAddress ? (
                         <p className="text-center text-sm text-[var(--ink-light)] italic">Connect wallet to interact with this stream.</p>
                     ) : (
@@ -405,13 +545,13 @@ export function StreamView(): React.JSX.Element {
                             {/* Recipient actions */}
                             {isRecipient && stream.status === StreamStatus.Active && (
                                 <div className="space-y-3">
-                                    <button type="button" onClick={() => void handleWithdraw()} disabled={withdrawing || withdrawable === 0n}
+                                    <button type="button" onClick={() => void handleWithdraw()} disabled={withdrawing || !!pendingTx || withdrawable === 0n}
                                         className="w-full py-3.5 bg-[var(--accent-gold)] text-white font-medium rounded-lg text-lg hover:bg-[var(--accent-gold-light)] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md active:scale-[0.98]">
                                         {withdrawing ? 'Withdrawing...' : `Withdraw ${formatTokenAmount(withdrawable, decimals)} ${token?.symbol ?? ''}`}
                                     </button>
                                     {!showWithdrawTo ? (
-                                        <button type="button" onClick={() => setShowWithdrawTo(true)}
-                                            className="w-full py-2.5 border-2 border-[var(--border-paper)] text-[var(--ink-medium)] font-medium rounded-lg text-sm hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] transition-colors">
+                                        <button type="button" onClick={() => setShowWithdrawTo(true)} disabled={!!pendingTx}
+                                            className="w-full py-2.5 border-2 border-[var(--border-paper)] text-[var(--ink-medium)] font-medium rounded-lg text-sm hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                                             Withdraw To Different Address
                                         </button>
                                     ) : (
@@ -424,7 +564,7 @@ export function StreamView(): React.JSX.Element {
                                             )}
                                             <div className="flex gap-2">
                                                 <button type="button" onClick={() => void handleWithdrawTo()}
-                                                    disabled={withdrawing || !withdrawToValidation.isValid || withdrawable === 0n}
+                                                    disabled={withdrawing || !!pendingTx || !withdrawToValidation.isValid || withdrawable === 0n}
                                                     className="flex-1 py-2 bg-[var(--accent-gold)] text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
                                                     {withdrawing ? 'Sending...' : 'Withdraw To'}
                                                 </button>
@@ -443,8 +583,8 @@ export function StreamView(): React.JSX.Element {
                                 <div className="space-y-3">
                                     {/* Top Up */}
                                     {!showTopUp ? (
-                                        <button type="button" onClick={() => setShowTopUp(true)}
-                                            className="w-full py-2.5 bg-[var(--accent-gold)] text-white font-medium rounded-lg text-sm hover:bg-[var(--accent-gold-light)] transition-colors shadow-md">
+                                        <button type="button" onClick={() => void handleOpenTopUp()} disabled={!!pendingTx}
+                                            className="w-full py-2.5 bg-[var(--accent-gold)] text-white font-medium rounded-lg text-sm hover:bg-[var(--accent-gold-light)] transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed">
                                             Top Up Stream
                                         </button>
                                     ) : (
@@ -453,37 +593,41 @@ export function StreamView(): React.JSX.Element {
                                             <input type="text" inputMode="decimal" value={topUpAmount}
                                                 onChange={(e) => { setTopUpAmount(e.target.value); setTopUpApproved(false); }}
                                                 placeholder="0.00" className={inputCls + ' font-mono'} />
-                                            <div className="flex gap-2">
-                                                {!topUpApproved ? (
-                                                    <button type="button" onClick={() => void handleTopUpApprove()}
-                                                        disabled={topUpApproving || !topUpAmount}
-                                                        className="flex-1 py-2 bg-[var(--accent-gold)] text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
-                                                        {topUpApproving ? 'Approving...' : '1. Approve'}
+                                            {topUpCheckingAllowance ? (
+                                                <p className="text-xs text-[var(--ink-light)] animate-pulse">Checking allowance...</p>
+                                            ) : (
+                                                <div className="flex gap-2">
+                                                    {!topUpApproved ? (
+                                                        <button type="button" onClick={() => void handleTopUpApprove()}
+                                                            disabled={topUpApproving || !!pendingTx || !topUpAmount}
+                                                            className="flex-1 py-2 bg-[var(--accent-gold)] text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+                                                            {topUpApproving ? 'Approving...' : '1. Approve'}
+                                                        </button>
+                                                    ) : (
+                                                        <button type="button" onClick={() => void handleTopUp()}
+                                                            disabled={topping || !!pendingTx || !topUpAmount}
+                                                            className="flex-1 py-2 bg-[var(--accent-gold)] text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+                                                            {topping ? 'Sending...' : 'Top Up'}
+                                                        </button>
+                                                    )}
+                                                    <button type="button" onClick={() => { setShowTopUp(false); setTopUpAmount(''); setTopUpApproved(false); }}
+                                                        className="px-4 py-2 text-[var(--ink-light)] text-sm hover:text-[var(--ink-dark)]">
+                                                        Cancel
                                                     </button>
-                                                ) : (
-                                                    <button type="button" onClick={() => void handleTopUp()}
-                                                        disabled={topping || !topUpAmount}
-                                                        className="flex-1 py-2 bg-[var(--stamp-green)] text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
-                                                        {topping ? 'Sending...' : '2. Top Up'}
-                                                    </button>
-                                                )}
-                                                <button type="button" onClick={() => { setShowTopUp(false); setTopUpAmount(''); setTopUpApproved(false); }}
-                                                    className="px-4 py-2 text-[var(--ink-light)] text-sm hover:text-[var(--ink-dark)]">
-                                                    Cancel
-                                                </button>
-                                            </div>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
 
                                     {/* Pause / Resume */}
                                     {stream.status === StreamStatus.Active && (
-                                        <button type="button" onClick={() => void handlePauseResume()} disabled={pausing}
+                                        <button type="button" onClick={() => void handlePauseResume()} disabled={pausing || !!pendingTx}
                                             className="w-full py-2.5 border-2 border-[var(--stamp-orange)] text-[var(--stamp-orange)] font-medium rounded-lg text-sm hover:bg-[var(--stamp-orange)] hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                                             {pausing ? 'Processing...' : 'Pause Stream'}
                                         </button>
                                     )}
                                     {stream.status === StreamStatus.Paused && (
-                                        <button type="button" onClick={() => void handlePauseResume()} disabled={pausing}
+                                        <button type="button" onClick={() => void handlePauseResume()} disabled={pausing || !!pendingTx}
                                             className="w-full py-2.5 bg-[var(--stamp-green)] text-white font-medium rounded-lg text-sm hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                                             {pausing ? 'Processing...' : 'Resume Stream'}
                                         </button>
@@ -491,17 +635,20 @@ export function StreamView(): React.JSX.Element {
 
                                     {/* Cancel */}
                                     {!showCancelConfirm ? (
-                                        <button type="button" onClick={() => setShowCancelConfirm(true)}
-                                            className="w-full py-2.5 border-2 border-[var(--stamp-red)] text-[var(--stamp-red)] font-medium rounded-lg text-sm hover:bg-[var(--stamp-red)] hover:text-white transition-colors">
+                                        <button type="button" onClick={() => setShowCancelConfirm(true)} disabled={!!pendingTx}
+                                            className="w-full py-2.5 border-2 border-[var(--stamp-red)] text-[var(--stamp-red)] font-medium rounded-lg text-sm hover:bg-[var(--stamp-red)] hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                                             Cancel Stream
                                         </button>
                                     ) : (
                                         <div className="p-4 bg-[var(--stamp-red)]/5 rounded-lg border border-[var(--stamp-red)] space-y-3">
-                                            <p className="text-sm text-[var(--stamp-red)]">
-                                                This will cancel the stream permanently. Remaining funds will be returned to you. Are you sure?
+                                            <p className="text-sm text-[var(--stamp-red)] font-medium">
+                                                ⚠️ This action is irreversible.
+                                            </p>
+                                            <p className="text-sm text-[var(--ink-medium)]">
+                                                Cancelling the stream will immediately stop all payments. Any remaining deposited funds will be returned to you (sender). The recipient keeps what has already been streamed.
                                             </p>
                                             <div className="flex gap-2">
-                                                <button type="button" onClick={() => void handleCancel()} disabled={cancelling}
+                                                <button type="button" onClick={() => void handleCancel()} disabled={cancelling || !!pendingTx}
                                                     className="flex-1 py-2 bg-[var(--stamp-red)] text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
                                                     {cancelling ? 'Cancelling...' : 'Yes, Cancel Stream'}
                                                 </button>
@@ -515,9 +662,9 @@ export function StreamView(): React.JSX.Element {
                                 </div>
                             )}
 
-                            {/* Third party: claim for recipient */}
+                            {/* Third party: claim for recipient (uses withdrawTo to route funds correctly) */}
                             {!isSender && !isRecipient && stream.status === StreamStatus.Active && withdrawable > 0n && (
-                                <button type="button" onClick={() => void handleWithdraw()} disabled={withdrawing}
+                                <button type="button" onClick={() => void handleClaimForRecipient()} disabled={withdrawing || !!pendingTx}
                                     className="w-full py-3 bg-[var(--accent-gold)] text-white font-medium rounded-lg text-sm hover:bg-[var(--accent-gold-light)] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md">
                                     {withdrawing ? 'Claiming...' : `Claim ${formatTokenAmount(withdrawable, decimals)} for Recipient`}
                                 </button>
@@ -528,8 +675,8 @@ export function StreamView(): React.JSX.Element {
 
                 {/* Share Section */}
                 <div className="flex flex-col sm:flex-row gap-3 pt-6 mt-6 border-t border-[var(--border-paper)]">
-                    <button type="button" onClick={handleCopyLink}
-                        className="flex-1 inline-flex items-center justify-center px-6 py-3 border-2 border-[var(--border-paper)] text-[var(--ink-medium)] font-medium rounded-lg hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] transition-colors">
+                    <button type="button" onClick={() => void handleCopyLink()} disabled={copied}
+                        className="flex-1 inline-flex items-center justify-center px-6 py-3 border-2 border-[var(--border-paper)] text-[var(--ink-medium)] font-medium rounded-lg hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                         {copied ? 'Copied!' : 'Share Link'}
                     </button>
                     {qrDataUrl && (

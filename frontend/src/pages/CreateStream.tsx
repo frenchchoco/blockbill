@@ -1,16 +1,24 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useWalletConnect } from '@btc-vision/walletconnect';
 import toast from 'react-hot-toast';
 import { PaperCard } from '../components/common/PaperCard';
-import { StreamStatus, getStreamStatusLabel, getStreamStampClass } from '../types/stream';
 import { useNetwork } from '../hooks/useNetwork';
+import { useBlockNumber } from '../hooks/useBlockNumber';
 import { useAddressValidation } from '../hooks/useAddressValidation';
+import { useStreamApproval } from '../hooks/useStreamApproval';
 import { contractService } from '../services/ContractService';
-import { providerService } from '../services/ProviderService';
 import { getKnownTokens, findToken, parseTokenAmount, formatTokenAmount, formatAddress } from '../config/tokens';
 import type { TokenInfo } from '../config/tokens';
 import { friendlyError } from '../utils/errors';
+import { getTxGasParams } from '../config/networks';
+import { saveStreamDraft, getStreamDrafts, markDraftPending } from '../utils/streamDrafts';
+import { addFeeOnTop, FEE_PERCENT } from '../utils/fee';
+
+const STREAM_APPROVAL_KEY_PREFIX = 'bb_stream_approve_';
+const MAX_UINT256 = 2n ** 256n - 1n;
+
+type ApproveStatus = 'waiting' | 'processing' | 'broadcast' | 'done' | 'error';
 
 interface StreamFormData {
     readonly tokenAddress: string;
@@ -19,7 +27,7 @@ interface StreamFormData {
     readonly ratePerBlock: string;
     readonly durationType: 'infinite' | 'fixed';
     readonly durationBlocks: string;
-    readonly durationDays: string;
+    readonly memo: string;
 }
 
 const INITIAL_FORM: StreamFormData = {
@@ -29,7 +37,7 @@ const INITIAL_FORM: StreamFormData = {
     ratePerBlock: '',
     durationType: 'infinite',
     durationBlocks: '',
-    durationDays: '',
+    memo: '',
 };
 
 // Bitcoin block time estimates
@@ -37,10 +45,22 @@ const BLOCKS_PER_HOUR = 6;
 const BLOCKS_PER_DAY = 144;
 const BLOCKS_PER_MONTH = 4320;
 
+type DurationPreset = '1w' | '1m' | '3m' | '6m' | '1y' | 'custom';
+
+const DURATION_PRESETS: readonly { key: DurationPreset; label: string; blocks: number }[] = [
+    { key: '1w', label: '1 Week', blocks: 1_008 },
+    { key: '1m', label: '1 Month', blocks: 4_320 },
+    { key: '3m', label: '3 Months', blocks: 12_960 },
+    { key: '6m', label: '6 Months', blocks: 25_920 },
+    { key: '1y', label: '1 Year', blocks: 52_560 },
+];
+
 export function CreateStream(): React.JSX.Element {
     const { walletAddress, address } = useWalletConnect();
     const { network } = useNetwork();
     const navigate = useNavigate();
+    const currentBlock = useBlockNumber();
+    const [searchParams, setSearchParams] = useSearchParams();
     const [form, setForm] = useState<StreamFormData>(INITIAL_FORM);
     const [submitting, setSubmitting] = useState(false);
     const [_step, setStep] = useState<'form' | 'approve' | 'create'>('form');
@@ -50,8 +70,34 @@ export function CreateStream(): React.JSX.Element {
     const [customTokenName, setCustomTokenName] = useState<string | null>(null);
     const [customTokenSymbol, setCustomTokenSymbol] = useState<string | null>(null);
     const [balanceLoading, setBalanceLoading] = useState(false);
-    const [approving, setApproving] = useState(false);
-    const [approved, setApproved] = useState(false);
+    const [approveStatus, setApproveStatus] = useState<ApproveStatus>('waiting');
+    const [unlimitedApproval, setUnlimitedApproval] = useState(false);
+    const [durationPreset, setDurationPreset] = useState<DurationPreset>('1m');
+    const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
+    const { checkAllowance } = useStreamApproval();
+
+    // Load draft from URL ?draft=<id>
+    useEffect(() => {
+        const draftId = searchParams.get('draft');
+        if (!draftId) return;
+        const drafts = getStreamDrafts();
+        const draft = drafts.find((d) => d.draftId === draftId);
+        if (!draft) return;
+
+        setEditingDraftId(draftId);
+        setForm({
+            tokenAddress: draft.tokenAddress,
+            recipient: draft.recipient,
+            totalAmount: draft.totalAmount,
+            ratePerBlock: draft.ratePerBlock,
+            durationType: draft.durationBlocks ? 'fixed' : 'infinite',
+            durationBlocks: draft.durationBlocks,
+            memo: draft.memo ?? '',
+        });
+        if (!findToken(draft.tokenAddress, network)) setCustomToken(true);
+        // Clean the URL param
+        setSearchParams({}, { replace: true });
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const knownTokens = useMemo(() => getKnownTokens(network), [network]);
 
@@ -89,7 +135,7 @@ export function CreateStream(): React.JSX.Element {
             try {
                 const resolvedHex = form.tokenAddress.startsWith('0x')
                     ? form.tokenAddress
-                    : '0x' + (await contractService.resolveAddress(form.tokenAddress, network, true)).toHex();
+                    : (await contractService.resolveAddress(form.tokenAddress, network, true)).toHex();
 
                 const tokenContract = contractService.getTokenContract(resolvedHex, network);
 
@@ -122,7 +168,7 @@ export function CreateStream(): React.JSX.Element {
 
     // Reset approval when token or amount changes
     useEffect(() => {
-        setApproved(false);
+        setApproveStatus('waiting');
         setStep('form');
     }, [form.tokenAddress, form.totalAmount]);
 
@@ -136,15 +182,31 @@ export function CreateStream(): React.JSX.Element {
         [form.ratePerBlock, decimals],
     );
 
-    const endBlock = useMemo(() => {
-        if (form.durationType === 'infinite') return 0n;
-        if (form.durationBlocks) return BigInt(form.durationBlocks);
-        if (form.durationDays) return BigInt(Math.round(Number(form.durationDays) * BLOCKS_PER_DAY));
-        return 0n;
-    }, [form.durationType, form.durationBlocks, form.durationDays]);
+    const durationBlocks = useMemo((): number => {
+        if (form.durationType === 'infinite') return 0;
+        if (durationPreset === 'custom') return Math.max(0, Number(form.durationBlocks) || 0);
+        const preset = DURATION_PRESETS.find(p => p.key === durationPreset);
+        return preset?.blocks ?? 0;
+    }, [form.durationType, durationPreset, form.durationBlocks]);
 
-    const feeAmount = useMemo(() => parsedAmount * 50n / 10000n, [parsedAmount]);
-    const netAmount = useMemo(() => parsedAmount - feeAmount, [parsedAmount, feeAmount]);
+    // endBlock must be an ABSOLUTE block number (not a duration offset).
+    // The contract rejects endBlock <= currentBlock, so we add durationBlocks to the current block.
+    // If duration is 0 (infinite), we pass 0n (contract interprets as "until deposit runs out").
+    const endBlock = useMemo(
+        () => durationBlocks === 0 ? 0n : currentBlock + BigInt(durationBlocks),
+        [durationBlocks, currentBlock],
+    );
+
+    const durationTimeEstimate = useMemo((): string => {
+        if (durationBlocks === 0) return '';
+        if (durationBlocks < BLOCKS_PER_DAY) return `${(durationBlocks / BLOCKS_PER_HOUR).toFixed(1)} hours`;
+        if (durationBlocks < BLOCKS_PER_MONTH) return `${(durationBlocks / BLOCKS_PER_DAY).toFixed(1)} days`;
+        return `${(durationBlocks / BLOCKS_PER_MONTH).toFixed(1)} months`;
+    }, [durationBlocks]);
+
+    // Fee is added ON TOP: the sender pays grossAmount, recipient receives parsedAmount.
+    const grossAmount = useMemo(() => addFeeOnTop(parsedAmount), [parsedAmount]);
+    const feeAmount = useMemo(() => grossAmount - parsedAmount, [grossAmount, parsedAmount]);
 
     // Rate display helpers
     const ratePerHour = useMemo(() => parsedRate * BigInt(BLOCKS_PER_HOUR), [parsedRate]);
@@ -153,9 +215,70 @@ export function CreateStream(): React.JSX.Element {
 
     const tokenSymbol = selectedToken?.symbol ?? customTokenSymbol ?? '';
 
+    // Estimated duration: how many blocks until deposit is exhausted
+    const estimatedBlocks = useMemo((): bigint => {
+        if (parsedRate === 0n) return 0n;
+        return parsedAmount / parsedRate;
+    }, [parsedAmount, parsedRate]);
+
+    // Human-readable time estimate (approximate — block times vary)
+    const estimatedTimeLabel = useMemo((): string => {
+        if (estimatedBlocks === 0n) return '';
+        const blocks = Number(estimatedBlocks);
+        if (blocks < BLOCKS_PER_HOUR) return `≈ ${Math.round(blocks * 10)} min`;
+        if (blocks < BLOCKS_PER_DAY) return `≈ ${(blocks / BLOCKS_PER_HOUR).toFixed(1)} hours`;
+        if (blocks < BLOCKS_PER_MONTH) return `≈ ${(blocks / BLOCKS_PER_DAY).toFixed(1)} days`;
+        return `≈ ${(blocks / BLOCKS_PER_MONTH).toFixed(1)} months`;
+    }, [estimatedBlocks]);
+
+    // Check allowance on load and poll every 30s after broadcast
+    useEffect(() => {
+        if (!address || !form.tokenAddress || grossAmount === 0n) return;
+        if (approveStatus === 'done' || approveStatus === 'processing') return;
+
+        const storageKey = `${STREAM_APPROVAL_KEY_PREFIX}${form.tokenAddress}`;
+        let cancelled = false;
+
+        const check = async (): Promise<void> => {
+            try {
+                const resolvedHex = form.tokenAddress.startsWith('0x')
+                    ? form.tokenAddress
+                    : (await contractService.resolveAddress(form.tokenAddress, network, true)).toHex();
+                const allowance = await checkAllowance(resolvedHex);
+                if (!cancelled && allowance >= grossAmount) {
+                    setApproveStatus('done');
+                    setStep('create');
+                    localStorage.removeItem(storageKey);
+                }
+            } catch {
+                // allowance check failed, will retry
+            }
+        };
+
+        // Restore broadcast state from localStorage (survives page refresh)
+        if (approveStatus === 'waiting') {
+            const stored = localStorage.getItem(storageKey);
+            if (stored && Date.now() - parseInt(stored, 10) < 30 * 60 * 1000) {
+                setApproveStatus('broadcast');
+                return () => { cancelled = true; };
+            }
+            if (stored) localStorage.removeItem(storageKey);
+        }
+
+        void check();
+
+        // Poll every 30s while waiting for broadcast confirmation
+        if (approveStatus === 'broadcast') {
+            const interval = setInterval(() => void check(), 30_000);
+            return () => { cancelled = true; clearInterval(interval); };
+        }
+
+        return () => { cancelled = true; };
+    }, [address, form.tokenAddress, grossAmount, network, checkAllowance, approveStatus]);
+
     const handleApprove = useCallback(async () => {
-        if (!walletAddress || !address || !form.tokenAddress || parsedAmount === 0n) return;
-        setApproving(true);
+        if (!walletAddress || !address || !form.tokenAddress || grossAmount === 0n) return;
+        setApproveStatus('processing');
 
         try {
             const resolvedHex = form.tokenAddress.startsWith('0x')
@@ -168,7 +291,8 @@ export function CreateStream(): React.JSX.Element {
             const tokenContract = contractService.getTokenContract(resolvedHex, network, address);
             const spender = (await import('@btc-vision/transaction')).Address.fromString(streamContractAddr);
 
-            const simulation = await tokenContract.increaseAllowance(spender, parsedAmount);
+            const approveAmount = unlimitedApproval ? MAX_UINT256 : grossAmount;
+            const simulation = await tokenContract.increaseAllowance(spender, approveAmount);
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
 
             toast.loading('Approve token spending in your wallet...');
@@ -176,26 +300,26 @@ export function CreateStream(): React.JSX.Element {
                 signer: null,
                 mldsaSigner: null,
                 refundTo: walletAddress,
-                maximumAllowedSatToSpend: 100_000n,
+                ...getTxGasParams(network),
                 network,
             });
 
             toast.dismiss();
-            toast.success('Token approved! Now create the stream.');
-            setApproved(true);
-            setStep('create');
+            toast.success('Approval broadcast — waiting for block confirmation');
+            setApproveStatus('broadcast');
+            localStorage.setItem(`${STREAM_APPROVAL_KEY_PREFIX}${form.tokenAddress}`, Date.now().toString());
         } catch (err: unknown) {
             toast.dismiss();
+            setApproveStatus('error');
             toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
-        } finally {
-            setApproving(false);
         }
-    }, [walletAddress, address, form.tokenAddress, parsedAmount, network]);
+    }, [walletAddress, address, form.tokenAddress, grossAmount, network, unlimitedApproval]);
 
     const handleCreate = useCallback(async () => {
         if (!walletAddress || !address || submitting) return;
         if (parsedAmount === 0n) { toast.error('Amount must be greater than 0'); return; }
         if (parsedRate === 0n) { toast.error('Rate per block must be greater than 0'); return; }
+        if (durationBlocks > 0 && currentBlock === 0n) { toast.error('Waiting for block number — please retry in a moment'); return; }
         if (!form.tokenAddress) { toast.error('Please select a token'); return; }
         if (customToken && !tokenValidation.isValid) { toast.error(tokenValidation.error ?? 'Invalid token address'); return; }
         if (!form.recipient) { toast.error('Please enter a recipient address'); return; }
@@ -210,8 +334,9 @@ export function CreateStream(): React.JSX.Element {
 
             const contract = contractService.getStreamContract(network, address);
 
+            // grossAmount = parsedAmount + fee; the contract deducts fee and deposits the net.
             const simulation = await contract.createStream(
-                recipientAddr, tokenAddr, parsedAmount, parsedRate, endBlock,
+                recipientAddr, tokenAddr, grossAmount, parsedRate, endBlock,
             );
 
             if (simulation.revert) {
@@ -225,39 +350,63 @@ export function CreateStream(): React.JSX.Element {
                 signer: null,
                 mldsaSigner: null,
                 refundTo: walletAddress,
-                maximumAllowedSatToSpend: 100_000n,
+                ...getTxGasParams(network),
                 network,
             });
 
             toast.dismiss(submitToast);
             toast.success('Stream created! Waiting for confirmation...');
 
-            // Poll for the stream ID
             const txId = receipt.transactionId;
-            const provider = providerService.getProvider(network);
 
-            let confirmed = false;
-            for (let attempt = 1; attempt <= 12; attempt++) {
-                await new Promise((r) => setTimeout(r, 5000));
-                try {
-                    const tx = await provider.getTransaction(txId);
-                    if (tx) { confirmed = true; break; }
-                } catch {
-                    // polling error, will retry
-                }
+            // Mark the draft as "pending" so the dashboard shows a waiting card.
+            // If there was no draft, create one in pending state.
+            if (editingDraftId) {
+                markDraftPending(editingDraftId, txId);
+            } else {
+                const tok = findToken(form.tokenAddress, network);
+                const newDraftId = saveStreamDraft({
+                    senderAddress: address.toHex(),
+                    tokenAddress: form.tokenAddress,
+                    tokenSymbol: tok?.symbol ?? customTokenSymbol ?? '',
+                    tokenIcon: tok?.icon ?? '',
+                    recipient: form.recipient,
+                    totalAmount: form.totalAmount,
+                    ratePerBlock: form.ratePerBlock,
+                    durationBlocks: form.durationType === 'fixed' ? String(durationBlocks) : '',
+                    memo: form.memo || undefined,
+                });
+                markDraftPending(newDraftId, txId);
             }
 
-            if (confirmed) {
-                toast.success('Stream confirmed on Bitcoin L1!');
-            }
-            navigate('/streams');
+            navigate('/dashboard?tab=streams');
         } catch (err: unknown) {
             toast.dismiss();
             toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
         } finally {
             setSubmitting(false);
         }
-    }, [walletAddress, address, submitting, form, parsedAmount, parsedRate, endBlock, network, customToken, tokenValidation, recipientValidation, navigate]);
+    }, [walletAddress, address, submitting, form, parsedAmount, grossAmount, parsedRate, endBlock, network, customToken, tokenValidation, recipientValidation, navigate, editingDraftId, customTokenSymbol, durationBlocks, currentBlock]);
+
+    const approved = approveStatus === 'done';
+
+    const handleSaveDraft = useCallback(() => {
+        const tok = selectedToken;
+        const draftId = saveStreamDraft({
+            draftId: editingDraftId ?? undefined,
+            senderAddress: address?.toHex() ?? '',
+            tokenAddress: form.tokenAddress,
+            tokenSymbol: tok?.symbol ?? customTokenSymbol ?? '',
+            tokenIcon: tok?.icon ?? '',
+            recipient: form.recipient,
+            totalAmount: form.totalAmount,
+            ratePerBlock: form.ratePerBlock,
+            durationBlocks: form.durationType === 'fixed' ? String(durationBlocks) : '',
+            memo: form.memo || undefined,
+        });
+        setEditingDraftId(draftId);
+        toast.success('Draft saved');
+    }, [form, selectedToken, customTokenSymbol, editingDraftId, durationBlocks, address]);
 
     const handleSubmit = useCallback((e: React.FormEvent) => {
         e.preventDefault();
@@ -282,7 +431,7 @@ export function CreateStream(): React.JSX.Element {
                 </div>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* Form */}
                 <PaperCard>
                     <form onSubmit={handleSubmit} className="space-y-6">
@@ -405,9 +554,9 @@ export function CreateStream(): React.JSX.Element {
                             {parsedRate > 0n && (
                                 <div className="mt-2 px-3 py-2 bg-[var(--paper-bg)] rounded-lg border border-[var(--border-paper)]">
                                     <p className="text-xs text-[var(--ink-medium)]">
-                                        ≈ {formatTokenAmount(ratePerHour, decimals)} {tokenSymbol}/hour
-                                        &middot; {formatTokenAmount(ratePerDay, decimals)} {tokenSymbol}/day
-                                        &middot; {formatTokenAmount(ratePerMonth, decimals)} {tokenSymbol}/month
+                                        ≈ {formatTokenAmount(ratePerHour, decimals)} ${tokenSymbol}/hr
+                                        &middot; {formatTokenAmount(ratePerDay, decimals)} ${tokenSymbol}/day
+                                        &middot; {formatTokenAmount(ratePerMonth, decimals)} ${tokenSymbol}/month
                                     </p>
                                 </div>
                             )}
@@ -424,7 +573,7 @@ export function CreateStream(): React.JSX.Element {
                                             ? 'bg-[var(--accent-gold)] text-white'
                                             : 'border border-[var(--border-paper)] text-[var(--ink-medium)] hover:border-[var(--accent-gold)]'
                                     }`}>
-                                    Infinite
+                                    Until Exhausted
                                 </button>
                                 <button type="button"
                                     onClick={() => updateField('durationType', 'fixed')}
@@ -437,52 +586,145 @@ export function CreateStream(): React.JSX.Element {
                                 </button>
                             </div>
                             {form.durationType === 'fixed' && (
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div>
-                                        <label htmlFor="durationBlocks" className="text-xs text-[var(--ink-light)] mb-1 block">Blocks</label>
+                                <div className="space-y-2">
+                                    <div className="flex flex-wrap gap-2">
+                                        {DURATION_PRESETS.map((p) => (
+                                            <button key={p.key} type="button"
+                                                onClick={() => setDurationPreset(p.key)}
+                                                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                                                    durationPreset === p.key
+                                                        ? 'bg-[var(--accent-gold)] text-white'
+                                                        : 'border border-[var(--border-paper)] text-[var(--ink-medium)] hover:border-[var(--accent-gold)]'
+                                                }`}>
+                                                {p.label}
+                                            </button>
+                                        ))}
+                                        <button type="button"
+                                            onClick={() => setDurationPreset('custom')}
+                                            className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                                                durationPreset === 'custom'
+                                                    ? 'bg-[var(--accent-gold)] text-white'
+                                                    : 'border border-[var(--border-paper)] text-[var(--ink-medium)] hover:border-[var(--accent-gold)]'
+                                            }`}>
+                                            Custom
+                                        </button>
+                                    </div>
+                                    {durationPreset === 'custom' && (
                                         <input id="durationBlocks" type="number" value={form.durationBlocks}
-                                            onChange={(e) => { updateField('durationBlocks', e.target.value); updateField('durationDays', ''); }}
-                                            placeholder="e.g. 1440" min="1" className={inputCls + ' font-mono text-sm'} />
-                                    </div>
-                                    <div>
-                                        <label htmlFor="durationDays" className="text-xs text-[var(--ink-light)] mb-1 block">or Days</label>
-                                        <input id="durationDays" type="number" value={form.durationDays}
-                                            onChange={(e) => { updateField('durationDays', e.target.value); updateField('durationBlocks', ''); }}
-                                            placeholder="e.g. 30" min="1" step="0.1" className={inputCls + ' font-mono text-sm'} />
-                                    </div>
+                                            onChange={(e) => updateField('durationBlocks', e.target.value)}
+                                            placeholder="Number of blocks" min="1" className={inputCls + ' font-mono text-sm'} />
+                                    )}
+                                    {durationBlocks > 0 && (
+                                        <p className="text-xs text-[var(--ink-medium)] mt-1">
+                                            <span className="font-mono font-medium">{durationBlocks.toLocaleString()} blocks</span>
+                                            {durationTimeEstimate && (
+                                                <span className="text-[var(--ink-light)]"> ({durationTimeEstimate})</span>
+                                            )}
+                                            <span className="text-[var(--ink-light)]"> from confirmation</span>
+                                        </p>
+                                    )}
+                                    <p className="text-xs text-[var(--ink-light)] italic">
+                                        Block times average ~10 min but vary. Duration is approximate.
+                                    </p>
                                 </div>
                             )}
                             {form.durationType === 'infinite' && (
-                                <p className="text-xs text-[var(--ink-light)] italic px-1">
-                                    Stream runs until deposit is exhausted or sender cancels.
-                                </p>
+                                <div className="px-3 py-2.5 bg-[var(--paper-bg)] rounded-lg border border-[var(--border-paper)] space-y-1.5">
+                                    <p className="text-xs text-[var(--ink-medium)]">
+                                        Streams until deposit runs out or you cancel. No fixed end block.
+                                    </p>
+                                    {estimatedBlocks > 0n && (
+                                        <div className="flex items-baseline gap-2">
+                                            <span className="text-sm text-[var(--ink-dark)] font-medium font-mono">
+                                                {estimatedBlocks.toString()} blocks
+                                            </span>
+                                            {estimatedTimeLabel && (
+                                                <span className="text-xs text-[var(--ink-light)] italic">
+                                                    ({estimatedTimeLabel})
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+                                    {estimatedBlocks > 0n && (
+                                        <p className="text-[10px] text-[var(--ink-light)]">
+                                            Time is estimated — block intervals average ~10 min but vary.
+                                        </p>
+                                    )}
+                                </div>
                             )}
                         </div>
 
-                        {/* Fee preview */}
+                        {/* Memo (encrypted, off-chain) */}
+                        <div>
+                            <label htmlFor="memo" className={labelCls}>Memo <span className="text-[var(--ink-light)] font-normal">(optional)</span></label>
+                            <textarea id="memo" value={form.memo}
+                                onChange={(e) => setForm((f) => ({ ...f, memo: e.target.value.slice(0, 200) }))}
+                                placeholder="Private note for the recipient…"
+                                rows={2}
+                                className={inputCls + ' resize-none'} />
+                            <p className="mt-1 text-[10px] text-[var(--ink-light)] flex items-center gap-1">
+                                <span>🔒</span>
+                                Encrypted — only you and the recipient can read this memo.
+                                <span className="ml-auto font-mono">{form.memo.length}/200</span>
+                            </p>
+                        </div>
+
+                        {/* Fee breakdown — fee is added on top, recipient receives the full amount */}
                         {parsedAmount > 0n && (
                             <div className="px-4 py-3 bg-[var(--paper-bg)] border border-[var(--border-paper)] rounded-lg space-y-1.5">
-                                <div className="flex justify-between text-xs text-[var(--ink-light)]">
-                                    <span>Platform fee (0.5%)</span>
-                                    <span className="font-mono">{formatTokenAmount(feeAmount, decimals)} {tokenSymbol}</span>
-                                </div>
                                 <div className="flex justify-between text-sm">
                                     <span className="text-[var(--ink-medium)]">Recipient receives</span>
                                     <span className="font-mono font-medium text-[var(--ink-dark)]">
-                                        {formatTokenAmount(netAmount, decimals)} {tokenSymbol}
+                                        {formatTokenAmount(parsedAmount, decimals)} {tokenSymbol}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between text-xs text-[var(--ink-light)]">
+                                    <span>Platform fee ({FEE_PERCENT})</span>
+                                    <span className="font-mono">+{formatTokenAmount(feeAmount, decimals)} {tokenSymbol}</span>
+                                </div>
+                                <div className="flex justify-between text-sm pt-1.5 border-t border-dashed border-[var(--border-paper)]">
+                                    <span className="text-[var(--ink-dark)] font-medium">Total debited</span>
+                                    <span className="font-mono font-semibold text-[var(--ink-dark)]">
+                                        {formatTokenAmount(grossAmount, decimals)} {tokenSymbol}
                                     </span>
                                 </div>
                             </div>
                         )}
 
-                        {/* Submit */}
+                        {/* Submit + Draft */}
                         <div className="pt-4 border-t border-[var(--border-paper)] space-y-3">
+                            {/* Save Draft link */}
+                            <button type="button" onClick={handleSaveDraft}
+                                disabled={!form.tokenAddress && !form.recipient && !form.totalAmount}
+                                className="w-full text-center text-sm text-[var(--accent-gold)] hover:text-[var(--accent-gold-light)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                                {editingDraftId ? '💾 Update Draft' : '💾 Save as Draft'}
+                            </button>
                             {!approved ? (
-                                <button type="submit"
-                                    disabled={!walletAddress || approving || !form.tokenAddress || !form.totalAmount || !form.ratePerBlock || !form.recipient}
-                                    className="w-full py-3.5 bg-[var(--accent-gold)] text-white font-medium rounded-lg text-lg hover:bg-[var(--accent-gold-light)] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md active:scale-[0.98]">
-                                    {approving ? 'Approving Token...' : 'Step 1: Approve Token'}
-                                </button>
+                                <>
+                                    {approveStatus !== 'broadcast' && (
+                                        <label className="flex items-center gap-2 cursor-pointer px-1">
+                                            <input type="checkbox" checked={unlimitedApproval}
+                                                onChange={(e) => setUnlimitedApproval(e.target.checked)}
+                                                className="w-3.5 h-3.5 accent-[var(--accent-gold)] cursor-pointer" />
+                                            <span className="text-xs text-[var(--ink-light)]">
+                                                Unlimited approval <span className="italic">(skip this step for future streams)</span>
+                                            </span>
+                                        </label>
+                                    )}
+                                    <button type="submit"
+                                        disabled={!walletAddress || approveStatus === 'processing' || approveStatus === 'broadcast' || !form.tokenAddress || !form.totalAmount || !form.ratePerBlock || !form.recipient}
+                                        className="w-full py-3.5 bg-[var(--accent-gold)] text-white font-medium rounded-lg text-lg hover:bg-[var(--accent-gold-light)] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md active:scale-[0.98]">
+                                        {approveStatus === 'processing' ? 'Sending Approval...'
+                                            : approveStatus === 'broadcast' ? 'Waiting for Confirmation...'
+                                            : approveStatus === 'error' ? 'Retry Approval'
+                                            : 'Step 1: Approve Token'}
+                                    </button>
+                                    {approveStatus === 'broadcast' && (
+                                        <p className="text-xs text-[var(--accent-gold)] text-center animate-pulse">
+                                            Approval broadcast — waiting for block confirmation (~10 min)
+                                        </p>
+                                    )}
+                                </>
                             ) : (
                                 <button type="submit"
                                     disabled={!walletAddress || submitting}
@@ -491,7 +733,11 @@ export function CreateStream(): React.JSX.Element {
                                 </button>
                             )}
                             <div className="flex items-center gap-3 justify-center">
-                                <div className={`w-3 h-3 rounded-full border-2 ${!approved ? 'border-[var(--accent-gold)] bg-[var(--accent-gold)]' : 'border-[var(--stamp-green)] bg-[var(--stamp-green)]'}`} />
+                                <div className={`w-3 h-3 rounded-full border-2 ${
+                                    approved ? 'border-[var(--stamp-green)] bg-[var(--stamp-green)]'
+                                    : approveStatus === 'broadcast' ? 'border-[var(--accent-gold)] bg-[var(--accent-gold)] animate-pulse'
+                                    : 'border-[var(--accent-gold)] bg-[var(--accent-gold)]'
+                                }`} />
                                 <div className={`w-8 h-0.5 ${approved ? 'bg-[var(--stamp-green)]' : 'bg-[var(--border-paper)]'}`} />
                                 <div className={`w-3 h-3 rounded-full border-2 ${approved ? 'border-[var(--stamp-green)] bg-[var(--stamp-green)]' : 'border-[var(--border-paper)]'}`} />
                             </div>
@@ -500,7 +746,7 @@ export function CreateStream(): React.JSX.Element {
                 </PaperCard>
 
                 {/* Live Preview */}
-                <div className="hidden lg:block">
+                <div className="hidden md:block">
                     <div className="sticky top-8">
                         <p className="text-xs uppercase tracking-widest text-[var(--ink-light)] font-medium mb-3 text-center">Live Preview</p>
                         <PaperCard className="relative">
@@ -511,9 +757,7 @@ export function CreateStream(): React.JSX.Element {
                                         From: {walletAddress ? formatAddress(walletAddress) : 'Connect wallet'}
                                     </p>
                                 </div>
-                                <span className={getStreamStampClass(StreamStatus.Active)}>
-                                    {getStreamStatusLabel(StreamStatus.Active)}
-                                </span>
+                                <span className="stamp stamp-pending">DRAFT</span>
                             </div>
 
                             {/* Stream flow visualization */}
@@ -562,20 +806,24 @@ export function CreateStream(): React.JSX.Element {
                             <div className="flex justify-between text-sm mb-2">
                                 <span className="text-[var(--ink-light)]">Duration</span>
                                 <span className="font-mono text-xs text-[var(--ink-dark)]">
-                                    {form.durationType === 'infinite' ? 'Infinite' : endBlock > 0n ? `${endBlock.toString()} blocks` : '--'}
+                                    {form.durationType === 'infinite'
+                                        ? (estimatedBlocks > 0n
+                                            ? <>{estimatedBlocks.toString()} blocks <span className="text-[var(--ink-light)] italic">({estimatedTimeLabel})</span></>
+                                            : 'Until deposit runs out')
+                                        : durationBlocks > 0 ? <>{durationBlocks.toLocaleString()} blocks {durationTimeEstimate && <span className="text-[var(--ink-light)] italic">({durationTimeEstimate})</span>}</> : '--'}
                                 </span>
                             </div>
 
                             {parsedAmount > 0n && (
                                 <div className="mt-4 pt-3 border-t border-dashed border-[var(--border-paper)]">
                                     <div className="flex justify-between text-xs text-[var(--ink-light)]">
-                                        <span>Platform fee (0.5%)</span>
-                                        <span className="font-mono">{formatTokenAmount(feeAmount, decimals)}</span>
+                                        <span>Fee ({FEE_PERCENT})</span>
+                                        <span className="font-mono">+{formatTokenAmount(feeAmount, decimals)}</span>
                                     </div>
                                     <div className="flex justify-between text-xs mt-1">
-                                        <span className="text-[var(--ink-light)]">Net to recipient</span>
-                                        <span className="font-mono font-medium text-[var(--ink-dark)]">
-                                            {formatTokenAmount(netAmount, decimals)}
+                                        <span className="text-[var(--ink-dark)] font-medium">Total debited</span>
+                                        <span className="font-mono font-semibold text-[var(--ink-dark)]">
+                                            {formatTokenAmount(grossAmount, decimals)}
                                         </span>
                                     </div>
                                 </div>

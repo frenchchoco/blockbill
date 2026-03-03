@@ -6,6 +6,7 @@ import type { IOP20Contract } from 'opnet';
 import { useNetwork } from './useNetwork';
 import { providerService } from '../services/ProviderService';
 import { getBlockBillAddress } from '../config/contracts';
+import { getTxGasParams } from '../config/networks';
 
 const MAX_UINT256 = 2n ** 256n - 1n;
 
@@ -73,7 +74,7 @@ export function useTokenApproval(): UseTokenApprovalReturn {
                     signer: null,
                     mldsaSigner: null,
                     refundTo: walletAddress,
-                    maximumAllowedSatToSpend: 100_000n,
+                    ...getTxGasParams(network),
                     network,
                 });
 

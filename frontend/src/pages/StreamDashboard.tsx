@@ -8,43 +8,23 @@ import { useNetwork } from '../hooks/useNetwork';
 import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
 import { friendlyError } from '../utils/errors';
+import { getStreamDrafts, deleteStreamDraft, clearPendingDrafts } from '../utils/streamDrafts';
+import type { StreamDraft } from '../utils/streamDrafts';
+import { parseStreamProperties, normalizeHex } from '../utils/streamParser';
+import type { RawStreamProperties } from '../utils/streamParser';
 
 type Tab = 'sending' | 'receiving';
-type StatusFilter = 'all' | 'active' | 'paused' | 'cancelled';
+type StatusFilter = 'all' | 'draft' | 'active' | 'paused' | 'cancelled';
 
 const FILTER_OPTIONS: readonly { key: StatusFilter; label: string; status: StreamStatus | null }[] = [
     { key: 'all', label: 'All', status: null },
+    { key: 'draft', label: 'Draft', status: null },
     { key: 'active', label: 'Active', status: StreamStatus.Active },
     { key: 'paused', label: 'Paused', status: StreamStatus.Paused },
     { key: 'cancelled', label: 'Cancelled', status: StreamStatus.Cancelled },
 ];
 
 const BLOCKS_PER_DAY = 144;
-
-/** Parse raw getStream result into StreamData. */
-function parseStreamProperties(id: number, props: Record<string, unknown>): StreamData {
-    return {
-        id,
-        sender: typeof props.sender === 'object' && props.sender !== null && 'toHex' in props.sender
-            ? '0x' + (props.sender as { toHex(): string }).toHex()
-            : String(props.sender ?? ''),
-        recipient: typeof props.recipient === 'object' && props.recipient !== null && 'toHex' in props.recipient
-            ? '0x' + (props.recipient as { toHex(): string }).toHex()
-            : String(props.recipient ?? ''),
-        token: typeof props.token === 'object' && props.token !== null && 'toHex' in props.token
-            ? '0x' + (props.token as { toHex(): string }).toHex()
-            : String(props.token ?? ''),
-        totalDeposited: BigInt(props.totalDeposited as bigint ?? 0n),
-        totalWithdrawn: BigInt(props.totalWithdrawn as bigint ?? 0n),
-        ratePerBlock: BigInt(props.ratePerBlock as bigint ?? 0n),
-        startBlock: BigInt(props.startBlock as bigint ?? 0n),
-        endBlock: BigInt(props.endBlock as bigint ?? 0n),
-        lastWithdrawBlock: BigInt(props.lastWithdrawBlock as bigint ?? 0n),
-        pausedAtBlock: BigInt(props.pausedAtBlock as bigint ?? 0n),
-        accumulatedBeforePause: BigInt(props.accumulatedBeforePause as bigint ?? 0n),
-        status: Number(props.status ?? 0) as StreamData['status'],
-    };
-}
 
 export function StreamDashboard(): React.JSX.Element {
     const { walletAddress, address, openConnectModal } = useWalletConnect();
@@ -58,6 +38,20 @@ export function StreamDashboard(): React.JSX.Element {
     const [totalCount, setTotalCount] = useState(0n);
     const [tokenDecimals, setTokenDecimals] = useState<Record<string, number>>({});
     const fetchedDecimalsRef = useRef<Set<string>>(new Set());
+    /** Track previous wallet stream count to detect growth (= tx confirmed). */
+    const prevWalletCountRef = useRef<bigint | null>(null);
+    const [drafts, setDrafts] = useState<StreamDraft[]>([]);
+
+    // Load local drafts scoped to current wallet
+    const walletHexForDrafts = address?.toHex();
+    useEffect(() => {
+        setDrafts(getStreamDrafts(walletHexForDrafts ?? undefined));
+    }, [walletHexForDrafts]);
+
+    const handleDeleteDraft = useCallback((draftId: string) => {
+        deleteStreamDraft(draftId);
+        setDrafts(getStreamDrafts(walletHexForDrafts ?? undefined));
+    }, [walletHexForDrafts]);
 
     // Clear streams when wallet changes
     useEffect(() => {
@@ -86,6 +80,16 @@ export function StreamDashboard(): React.JSX.Element {
             const walletCount = indexResult?.properties?.count ?? 0n;
             setTotalCount(walletCount);
 
+            // Clear pending drafts only when the on-chain count has grown (= new stream confirmed)
+            if (activeTab === 'sending') {
+                const walletHex = address.toHex();
+                if (prevWalletCountRef.current !== null && walletCount > prevWalletCountRef.current) {
+                    clearPendingDrafts(walletHex);
+                }
+                prevWalletCountRef.current = walletCount;
+                setDrafts(getStreamDrafts(walletHex));
+            }
+
             if (walletCount === 0n) {
                 setStreams([]);
                 return;
@@ -100,7 +104,7 @@ export function StreamDashboard(): React.JSX.Element {
                 return;
             }
 
-            const walletHex = address.toHex().toLowerCase();
+            const walletNorm = normalizeHex(address.toHex());
 
             const promises = Array.from({ length: globalCount }, (_, i) =>
                 contract.getStream(BigInt(i + 1)).catch(() => null),
@@ -112,12 +116,13 @@ export function StreamDashboard(): React.JSX.Element {
                 const result = results[i];
                 if (!result?.properties) continue;
 
-                const s = parseStreamProperties(i + 1, result.properties as unknown as Record<string, unknown>);
+                const s = parseStreamProperties(i + 1, result.properties as RawStreamProperties);
 
-                const isSender = s.sender.replace(/^0x/i, '').toLowerCase() === walletHex;
-                const isRecipient = s.recipient.replace(/^0x/i, '').toLowerCase() === walletHex;
-                if (activeTab === 'sending' && isSender) fetchedStreams.push(s);
-                else if (activeTab === 'receiving' && isRecipient) fetchedStreams.push(s);
+                const senderNorm = normalizeHex(s.sender);
+                const recipientNorm = normalizeHex(s.recipient);
+
+                if (activeTab === 'sending' && senderNorm === walletNorm) fetchedStreams.push(s);
+                else if (activeTab === 'receiving' && recipientNorm === walletNorm) fetchedStreams.push(s);
             }
 
             setStreams(fetchedStreams);
@@ -177,17 +182,19 @@ export function StreamDashboard(): React.JSX.Element {
         return () => { cancelled = true; };
     }, [streams, network]);
 
-    const filteredStreams = statusFilter === 'all'
+    const filteredStreams = statusFilter === 'all' || statusFilter === 'draft'
         ? streams
         : streams.filter((s) => {
             const opt = FILTER_OPTIONS.find((f) => f.key === statusFilter);
             return opt?.status !== null && opt?.status !== undefined && s.status === opt.status;
         });
 
+    const showDrafts = statusFilter === 'all' || statusFilter === 'draft';
+    const displayedDraftCount = showDrafts ? drafts.length : 0;
+
     if (!walletAddress) {
         return (
             <div className="max-w-4xl mx-auto">
-                <h1 className="text-3xl font-serif text-[var(--ink-dark)] mb-8 text-center">My Streams</h1>
                 <PaperCard className="text-center py-12">
                     <p className="text-[var(--ink-medium)] mb-4">Connect your wallet to see your streams.</p>
                     <button type="button" onClick={openConnectModal}
@@ -201,22 +208,11 @@ export function StreamDashboard(): React.JSX.Element {
 
     return (
         <div className="max-w-4xl mx-auto">
-            <div className="flex items-center justify-between mb-8">
-                <h1 className="text-3xl font-serif text-[var(--ink-dark)]">My Streams</h1>
-                <Link to="/streams/create"
-                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-[var(--accent-gold)] text-white font-medium rounded-lg text-sm hover:bg-[var(--accent-gold-light)] transition-colors shadow-md">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                    </svg>
-                    Create Stream
-                </Link>
-            </div>
-
             {/* Tabs */}
             <div className="flex gap-8 mb-6 border-b border-[var(--border-paper)]">
                 {(['sending', 'receiving'] as const).map((tab) => (
                     <button key={tab} type="button"
-                        onClick={() => { setActiveTab(tab); setStatusFilter('all'); }}
+                        onClick={() => { setActiveTab(tab); setStatusFilter('all'); prevWalletCountRef.current = null; }}
                         className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px capitalize ${
                             activeTab === tab
                                 ? 'border-[var(--accent-gold)] text-[var(--ink-dark)]'
@@ -240,7 +236,7 @@ export function StreamDashboard(): React.JSX.Element {
                     </button>
                 ))}
                 <span className="text-xs text-[var(--ink-light)] self-center ml-2">
-                    {totalCount.toString()} total
+                    {(Number(totalCount) + drafts.length).toString()} total{drafts.length > 0 && ` (${drafts.length} draft${drafts.length > 1 ? 's' : ''})`}
                 </span>
                 <button type="button" onClick={() => void fetchStreams()} disabled={loading}
                     title="Refresh"
@@ -268,19 +264,92 @@ export function StreamDashboard(): React.JSX.Element {
                     <div className="inline-block w-8 h-8 border-2 border-[var(--accent-gold)] border-t-transparent rounded-full animate-spin" />
                     <p className="text-[var(--ink-light)] mt-4 font-serif">Loading streams...</p>
                 </div>
-            ) : filteredStreams.length === 0 ? (
+            ) : filteredStreams.length === 0 && displayedDraftCount === 0 ? (
                 <PaperCard className="text-center py-12">
                     <p className="text-[var(--ink-medium)] mb-4">
-                        {streams.length === 0 ? 'No streams yet.' : 'No matching streams.'}
+                        {streams.length === 0 && drafts.length === 0 ? 'No streams yet.' : 'No matching streams.'}
                     </p>
-                    <Link to="/streams/create"
+                    <Link to="/create/stream"
                         className="inline-flex items-center px-6 py-3 bg-[var(--accent-gold)] text-white font-medium rounded-lg hover:bg-[var(--accent-gold-light)] transition-colors shadow-md">
                         Create Stream
                     </Link>
                 </PaperCard>
             ) : (
                 <div className="space-y-3">
-                    {filteredStreams.map((stream) => {
+                    {/* Draft & Pending cards */}
+                    {showDrafts && drafts.map((draft) => {
+                        const tok = findToken(draft.tokenAddress, network);
+                        const isPending = draft.status === 'pending';
+                        return (
+                            <PaperCard key={draft.draftId} className={`!p-4 relative ${
+                                isPending
+                                    ? 'border-[var(--accent-gold)]/40'
+                                    : 'border-dashed border-[var(--stamp-orange)]/40'
+                            }`}>
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-xs text-[var(--ink-light)] italic">
+                                            {isPending ? 'Awaiting block' : 'Draft'}
+                                        </span>
+                                        <span className="text-xs text-[var(--ink-medium)]">
+                                            {draft.tokenIcon || tok?.icon || ''} {draft.tokenSymbol || tok?.symbol || formatAddress(draft.tokenAddress)}
+                                        </span>
+                                    </div>
+                                    {isPending ? (
+                                        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent-gold)] bg-[var(--accent-gold)]/10 px-2.5 py-1 rounded-full">
+                                            <span className="inline-block w-2 h-2 rounded-full bg-[var(--accent-gold)] animate-pulse" />
+                                            PENDING
+                                        </span>
+                                    ) : (
+                                        <span className="stamp stamp-pending">DRAFT</span>
+                                    )}
+                                </div>
+
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-xs text-[var(--ink-light)]">
+                                        To: <span className="font-mono">{draft.recipient ? formatAddress(draft.recipient) : '—'}</span>
+                                    </span>
+                                    <span className="text-xs font-mono text-[var(--ink-medium)]">
+                                        {draft.ratePerBlock ? `${draft.ratePerBlock}/block` : '—'}
+                                    </span>
+                                </div>
+
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-xs text-[var(--ink-light)]">
+                                        Amount: <span className="font-mono font-medium text-[var(--ink-dark)]">{draft.totalAmount || '—'}</span>
+                                    </span>
+                                    {draft.durationBlocks && (
+                                        <span className="text-xs text-[var(--ink-light)]">
+                                            {Number(draft.durationBlocks).toLocaleString()} blocks
+                                        </span>
+                                    )}
+                                </div>
+
+                                {isPending ? (
+                                    <div className="mt-3 pt-2 border-t border-[var(--border-paper)]">
+                                        <p className="text-xs text-[var(--accent-gold)] text-center animate-pulse">
+                                            Transaction broadcast — waiting for next block (~10 min)
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-2 mt-3 pt-2 border-t border-[var(--border-paper)]">
+                                        <Link to={`/create/stream?draft=${draft.draftId}`}
+                                            className="flex-1 text-center text-sm text-white bg-[var(--accent-gold)] px-3 py-1.5 rounded-lg hover:bg-[var(--accent-gold-light)] transition-colors">
+                                            Continue Editing
+                                        </Link>
+                                        <button type="button" onClick={() => handleDeleteDraft(draft.draftId)}
+                                            className="text-sm text-[var(--stamp-red)] hover:text-[var(--stamp-red)]/80 transition-colors px-3 py-1.5"
+                                            title="Delete draft">
+                                            ✕
+                                        </button>
+                                    </div>
+                                )}
+                            </PaperCard>
+                        );
+                    })}
+
+                    {/* On-chain stream cards */}
+                    {(statusFilter !== 'draft') && filteredStreams.map((stream) => {
                         const tok = findToken(stream.token, network);
                         const dec = tokenDecimals[stream.token] ?? tok?.decimals ?? 8;
                         const wd = withdrawables[stream.id] ?? 0n;
@@ -306,13 +375,13 @@ export function StreamDashboard(): React.JSX.Element {
                                         </span>
                                     </div>
 
-                                    <div className="flex items-center justify-between mb-2">
-                                        <span className="text-xs text-[var(--ink-light)]">
+                                    <div className="flex items-center justify-between gap-2 mb-2">
+                                        <span className="text-xs text-[var(--ink-light)] truncate min-w-0">
                                             {activeTab === 'sending' ? 'To' : 'From'}: <span className="font-mono">{formatAddress(counterparty)}</span>
                                         </span>
-                                        <span className="text-xs font-mono text-[var(--ink-medium)]">
+                                        <span className="text-xs font-mono text-[var(--ink-medium)] shrink-0">
                                             {formatTokenAmount(stream.ratePerBlock, dec)}/block
-                                            <span className="text-[var(--ink-light)]"> ≈ {formatTokenAmount(ratePerDay, dec)}/day</span>
+                                            <span className="hidden sm:inline text-[var(--ink-light)]"> ≈ {formatTokenAmount(ratePerDay, dec)}/day</span>
                                         </span>
                                     </div>
 

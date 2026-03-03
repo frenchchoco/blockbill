@@ -3,9 +3,10 @@ import { Link } from 'react-router-dom';
 import { useWalletConnect } from '@btc-vision/walletconnect';
 import { PaperCard } from '../components/common/PaperCard';
 import { StampBadge } from '../components/common/StampBadge';
-import { InvoiceStatus } from '../types/invoice';
+import { InvoiceStatus, isInvoiceExpired } from '../types/invoice';
 import type { InvoiceData } from '../types/invoice';
 import { useNetwork } from '../hooks/useNetwork';
+import { useBlockNumber } from '../hooks/useBlockNumber';
 import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
 import { parseInvoiceProperties } from '../utils/invoice';
@@ -24,6 +25,7 @@ const FILTER_OPTIONS: readonly { key: StatusFilter; label: string; status: Invoi
 export function Dashboard(): React.JSX.Element {
     const { walletAddress, address, openConnectModal } = useWalletConnect();
     const { network } = useNetwork();
+    const currentBlock = useBlockNumber();
     const [activeTab, setActiveTab] = useState<Tab>('created');
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
     const [invoices, setInvoices] = useState<InvoiceData[]>([]);
@@ -74,7 +76,7 @@ export function Dashboard(): React.JSX.Element {
                 return;
             }
 
-            const walletHex = address.toHex().toLowerCase();
+            const walletHex = address.toHex().replace(/^(0x)+/i, '').toLowerCase();
 
             const promises = Array.from({ length: globalCount }, (_, i) =>
                 contract.getInvoice(BigInt(i + 1)).catch(() => null),
@@ -88,8 +90,8 @@ export function Dashboard(): React.JSX.Element {
 
                 const inv = parseInvoiceProperties(BigInt(i + 1), invResult.properties);
 
-                const isCreator = inv.creator.toLowerCase() === walletHex;
-                const isRecipient = inv.recipient.toLowerCase() === walletHex;
+                const isCreator = inv.creator.replace(/^(0x)+/i, '').toLowerCase() === walletHex;
+                const isRecipient = inv.recipient.replace(/^(0x)+/i, '').toLowerCase() === walletHex;
                 if (activeTab === 'created' && isCreator) fetchedInvoices.push(inv);
                 else if (activeTab === 'received' && isRecipient) fetchedInvoices.push(inv);
             }
@@ -143,8 +145,10 @@ export function Dashboard(): React.JSX.Element {
             return opt?.status !== null && opt?.status !== undefined && inv.status === opt.status;
         });
 
-    const statusLabel = (s: InvoiceStatus): string =>
-        s === InvoiceStatus.Paid ? 'Paid' : s === InvoiceStatus.Cancelled ? 'Cancelled' : 'Pending';
+    const statusLabel = (inv: InvoiceData): string => {
+        if (currentBlock > 0n && isInvoiceExpired(inv, currentBlock)) return 'Expired';
+        return inv.status === InvoiceStatus.Paid ? 'Paid' : inv.status === InvoiceStatus.Cancelled ? 'Cancelled' : 'Pending';
+    };
 
     const exportCsv = useCallback(() => {
         if (filteredInvoices.length === 0) return;
@@ -157,7 +161,7 @@ export function Dashboard(): React.JSX.Element {
                 inv.id.toString(),
                 formatTokenAmount(inv.totalAmount, dec),
                 tok?.symbol ?? formatAddress(inv.token),
-                statusLabel(inv.status),
+                statusLabel(inv),
                 inv.createdAtBlock.toString(),
                 inv.paidBy && !/^0x0+$/.test(inv.paidBy) ? formatAddress(inv.paidBy) : '',
                 inv.paidAtBlock > 0n ? inv.paidAtBlock.toString() : '',
@@ -177,7 +181,6 @@ export function Dashboard(): React.JSX.Element {
     if (!walletAddress) {
         return (
             <div className="max-w-4xl mx-auto">
-                <h1 className="text-3xl font-serif text-[var(--ink-dark)] mb-8 text-center">My Invoices</h1>
                 <PaperCard className="text-center py-12">
                     <p className="text-[var(--ink-medium)] mb-4">Connect your wallet to see your invoices.</p>
                     <button type="button" onClick={openConnectModal}
@@ -191,8 +194,6 @@ export function Dashboard(): React.JSX.Element {
 
     return (
         <div className="max-w-4xl mx-auto">
-            <h1 className="text-3xl font-serif text-[var(--ink-dark)] mb-8 text-center">My Invoices</h1>
-
             {/* Tabs */}
             <div className="flex gap-8 mb-6 border-b border-[var(--border-paper)]">
                 {(['created', 'received'] as const).map((tab) => (
@@ -282,6 +283,7 @@ export function Dashboard(): React.JSX.Element {
                     {filteredInvoices.map((invoice) => {
                         const tok = findToken(invoice.token, network);
                         const dec = tokenDecimals[invoice.token] ?? tok?.decimals ?? 8;
+                        const expired = currentBlock > 0n && isInvoiceExpired(invoice, currentBlock);
                         return (
                             <PaperCard key={invoice.id.toString()} className="!p-4 hover:shadow-lg transition-shadow">
                                 <div className="grid grid-cols-12 gap-4 items-center">
@@ -301,7 +303,7 @@ export function Dashboard(): React.JSX.Element {
                                         </span>
                                     </div>
                                     <div className="col-span-4 sm:col-span-2">
-                                        <StampBadge status={invoice.status} size="sm" />
+                                        <StampBadge status={invoice.status} size="sm" expired={expired} />
                                     </div>
                                     <div className="col-span-4 sm:col-span-2">
                                         <span className="sm:hidden text-xs text-[var(--ink-light)] block">Block</span>
@@ -312,7 +314,7 @@ export function Dashboard(): React.JSX.Element {
                                             className="text-sm text-[var(--accent-gold)] hover:text-[var(--accent-gold-light)] transition-colors">
                                             View
                                         </Link>
-                                        {invoice.status === InvoiceStatus.Pending && activeTab === 'received' && (
+                                        {invoice.status === InvoiceStatus.Pending && !expired && activeTab === 'received' && (
                                             <Link to={`/pay/${invoice.id.toString()}`}
                                                 className="text-sm text-white bg-[var(--accent-gold)] px-3 py-1 rounded hover:bg-[var(--accent-gold-light)] transition-colors">
                                                 Pay
