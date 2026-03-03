@@ -15,7 +15,6 @@ import {
 
 const STATUS_PENDING: u8 = 0;
 const STATUS_PAID: u8 = 1;
-const STATUS_CANCELLED: u8 = 2;
 
 const FEE_BPS: u256 = u256.fromU32(50);
 const BPS_DENOMINATOR: u256 = u256.fromU32(10000);
@@ -26,6 +25,9 @@ const MAX_INDEX_ENTRIES: u32 = 1000;
 
 // Number of 32-byte slots for long string storage (7 * 32 = 224 bytes max)
 const LONG_STRING_MAX_SLOTS: u32 = 7;
+
+// Max relative deadline in blocks (~100 years, prevents u64 overflow)
+const MAX_DEADLINE_BLOCKS: u64 = 5_256_000;
 
 export class BlockBillContract extends ReentrancyGuard {
     // Storage pointers
@@ -125,7 +127,14 @@ export class BlockBillContract extends ReentrancyGuard {
         this.storeU256At(this.pTotalAmount, invoiceId, totalAmount);
         this.storeAddressAt(this.pRecipient, invoiceId, recipient);
         this.storeLongString(this.pMemo, invoiceId, memo);
-        this.storeU64At(this.pDeadline, invoiceId, deadline);
+        // Deadline is relative: number of blocks from NOW. Compute absolute deadline at execution time.
+        // This ensures the deadline is always relative to the actual confirmation block,
+        // even if the transaction takes several blocks to be included.
+        if (deadline > MAX_DEADLINE_BLOCKS) {
+            throw new Revert('Deadline too large');
+        }
+        const absoluteDeadline: u64 = deadline > 0 ? Blockchain.block.number + deadline : 0;
+        this.storeU64At(this.pDeadline, invoiceId, absoluteDeadline);
         this.storeU16At(this.pTaxBps, invoiceId, taxBps);
         this.storeU8At(this.pStatus, invoiceId, STATUS_PENDING);
         this.storeU64At(this.pCreatedAtBlock, invoiceId, Blockchain.block.number);
@@ -211,33 +220,6 @@ export class BlockBillContract extends ReentrancyGuard {
             );
             TransferHelper.transferFrom(token, caller, feeRecipient, fee);
         }
-
-        const writer: BytesWriter = new BytesWriter(1);
-        writer.writeBoolean(true);
-        return writer;
-    }
-
-    @method({ name: 'invoiceId', type: ABIDataTypes.UINT256 })
-    @returns({ name: 'success', type: ABIDataTypes.BOOL })
-    public cancelInvoice(calldata: Calldata): BytesWriter {
-        const invoiceId: u256 = calldata.readU256();
-        this.assertInvoiceExists(invoiceId);
-        const caller: Address = Blockchain.tx.sender;
-
-        // Verify caller is the creator
-        const creator: Address = this.loadAddressAt(this.pCreator, invoiceId);
-        if (!caller.equals(creator)) {
-            throw new Revert('Only creator can cancel');
-        }
-
-        // Verify status is pending
-        const status: u8 = this.loadU8At(this.pStatus, invoiceId);
-        if (status != STATUS_PENDING) {
-            throw new Revert('Invoice is not pending');
-        }
-
-        // Update status
-        this.storeU8At(this.pStatus, invoiceId, STATUS_CANCELLED);
 
         const writer: BytesWriter = new BytesWriter(1);
         writer.writeBoolean(true);

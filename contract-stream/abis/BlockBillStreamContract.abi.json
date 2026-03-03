@@ -1,11 +1,15 @@
 {
     "functions": [
         {
-            "name": "createInvoice",
+            "name": "createStream",
             "type": "Function",
             "payable": false,
             "onlyOwner": false,
             "inputs": [
+                {
+                    "name": "recipient",
+                    "type": "ADDRESS"
+                },
                 {
                     "name": "token",
                     "type": "ADDRESS"
@@ -15,41 +19,73 @@
                     "type": "UINT256"
                 },
                 {
-                    "name": "recipient",
-                    "type": "ADDRESS"
+                    "name": "ratePerBlock",
+                    "type": "UINT256"
                 },
                 {
-                    "name": "memo",
-                    "type": "STRING"
-                },
-                {
-                    "name": "deadline",
+                    "name": "endBlock",
                     "type": "UINT64"
-                },
-                {
-                    "name": "taxBps",
-                    "type": "UINT16"
-                },
-                {
-                    "name": "lineItemCount",
-                    "type": "UINT16"
                 }
             ],
             "outputs": [
                 {
-                    "name": "invoiceId",
+                    "name": "streamId",
                     "type": "UINT256"
                 }
             ]
         },
         {
-            "name": "payInvoice",
+            "name": "withdraw",
             "type": "Function",
             "payable": false,
             "onlyOwner": false,
             "inputs": [
                 {
-                    "name": "invoiceId",
+                    "name": "streamId",
+                    "type": "UINT256"
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "amount",
+                    "type": "UINT256"
+                }
+            ]
+        },
+        {
+            "name": "withdrawTo",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "streamId",
+                    "type": "UINT256"
+                },
+                {
+                    "name": "to",
+                    "type": "ADDRESS"
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "amount",
+                    "type": "UINT256"
+                }
+            ]
+        },
+        {
+            "name": "topUp",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "streamId",
+                    "type": "UINT256"
+                },
+                {
+                    "name": "amount",
                     "type": "UINT256"
                 }
             ],
@@ -61,18 +97,50 @@
             ]
         },
         {
-            "name": "markAsPaidBTC",
+            "name": "cancelStream",
             "type": "Function",
             "payable": false,
             "onlyOwner": false,
             "inputs": [
                 {
-                    "name": "invoiceId",
+                    "name": "streamId",
                     "type": "UINT256"
-                },
+                }
+            ],
+            "outputs": [
                 {
-                    "name": "btcTxHash",
-                    "type": "STRING"
+                    "name": "success",
+                    "type": "BOOL"
+                }
+            ]
+        },
+        {
+            "name": "pauseStream",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "streamId",
+                    "type": "UINT256"
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "success",
+                    "type": "BOOL"
+                }
+            ]
+        },
+        {
+            "name": "resumeStream",
+            "type": "Function",
+            "payable": false,
+            "onlyOwner": false,
+            "inputs": [
+                {
+                    "name": "streamId",
+                    "type": "UINT256"
                 }
             ],
             "outputs": [
@@ -101,19 +169,23 @@
             ]
         },
         {
-            "name": "getInvoice",
+            "name": "getStream",
             "type": "Function",
             "payable": false,
             "onlyOwner": false,
             "inputs": [
                 {
-                    "name": "invoiceId",
+                    "name": "streamId",
                     "type": "UINT256"
                 }
             ],
             "outputs": [
                 {
-                    "name": "creator",
+                    "name": "sender",
+                    "type": "ADDRESS"
+                },
+                {
+                    "name": "recipient",
                     "type": "ADDRESS"
                 },
                 {
@@ -121,85 +193,69 @@
                     "type": "ADDRESS"
                 },
                 {
-                    "name": "totalAmount",
+                    "name": "totalDeposited",
                     "type": "UINT256"
                 },
                 {
-                    "name": "recipient",
-                    "type": "ADDRESS"
+                    "name": "totalWithdrawn",
+                    "type": "UINT256"
+                },
+                {
+                    "name": "ratePerBlock",
+                    "type": "UINT256"
+                },
+                {
+                    "name": "startBlock",
+                    "type": "UINT64"
+                },
+                {
+                    "name": "endBlock",
+                    "type": "UINT64"
+                },
+                {
+                    "name": "lastWithdrawBlock",
+                    "type": "UINT64"
+                },
+                {
+                    "name": "pausedAtBlock",
+                    "type": "UINT64"
+                },
+                {
+                    "name": "accumulatedBeforePause",
+                    "type": "UINT256"
                 },
                 {
                     "name": "status",
                     "type": "UINT8"
-                },
-                {
-                    "name": "deadline",
-                    "type": "UINT64"
-                },
-                {
-                    "name": "taxBps",
-                    "type": "UINT16"
-                },
-                {
-                    "name": "createdAtBlock",
-                    "type": "UINT64"
-                },
-                {
-                    "name": "paidBy",
-                    "type": "ADDRESS"
-                },
-                {
-                    "name": "paidAtBlock",
-                    "type": "UINT64"
-                },
-                {
-                    "name": "memo",
-                    "type": "STRING"
-                },
-                {
-                    "name": "btcTxHash",
-                    "type": "STRING"
-                },
-                {
-                    "name": "lineItemCount",
-                    "type": "UINT16"
                 }
             ]
         },
         {
-            "name": "getLineItems",
+            "name": "getWithdrawable",
             "type": "Function",
             "payable": false,
             "onlyOwner": false,
             "inputs": [
                 {
-                    "name": "invoiceId",
+                    "name": "streamId",
                     "type": "UINT256"
                 }
             ],
             "outputs": [
                 {
-                    "name": "count",
-                    "type": "UINT16"
-                },
-                {
-                    "name": "descriptions",
-                    "type": "STRING"
-                },
-                {
-                    "name": "amounts",
+                    "name": "withdrawable",
                     "type": "UINT256"
                 }
             ]
         },
         {
-            "name": "getInvoicesByCreator",
+            "name": "getStreamsBySender",
             "type": "Function",
             "payable": false,
             "onlyOwner": false,
             "inputs": [
                 {
-                    "name": "creator",
+                    "name": "sender",
                     "type": "ADDRESS"
                 }
             ],
@@ -211,7 +267,7 @@
             ]
         },
         {
-            "name": "getInvoicesByRecipient",
+            "name": "getStreamsByRecipient",
             "type": "Function",
             "payable": false,
             "onlyOwner": false,
@@ -229,7 +285,7 @@
             ]
         },
         {
-            "name": "getInvoiceCount",
+            "name": "getStreamCount",
             "type": "Function",
             "payable": false,
             "onlyOwner": false,

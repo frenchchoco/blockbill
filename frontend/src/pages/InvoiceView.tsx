@@ -11,6 +11,7 @@ import { useBlockNumber } from '../hooks/useBlockNumber';
 import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress, formatRecipient } from '../config/tokens';
 import { parseInvoiceProperties } from '../utils/invoice';
+import { netFromGross, calculateFee, FEE_PERCENT } from '../utils/fee';
 
 export function InvoiceView(): React.JSX.Element {
     const { id } = useParams<{ id: string }>();
@@ -122,10 +123,10 @@ export function InvoiceView(): React.JSX.Element {
     const decimals = onChainDecimals ?? token?.decimals ?? 8;
     const isPaid = invoice.status === InvoiceStatus.Paid;
     const expired = currentBlock > 0n && isInvoiceExpired(invoice, currentBlock);
-    const normalizeHex = (h: string): string => h.replace(/^0x/i, '').toLowerCase();
+    const normalizeHex = (h: string): string => h.replace(/^(0x)+/i, '').toLowerCase();
     const walletHex = address ? normalizeHex(address.toHex()) : '';
     const isCreator = walletHex !== '' && normalizeHex(invoice.creator) === walletHex;
-    const canPay = invoice.status === InvoiceStatus.Pending && !isCreator && !expired;
+    const canPay = !!address && invoice.status === InvoiceStatus.Pending && !isCreator && !expired;
 
     return (
         <div className="max-w-2xl mx-auto">
@@ -170,6 +171,10 @@ export function InvoiceView(): React.JSX.Element {
                         <span className="font-mono text-[var(--ink-dark)] text-right font-bold text-lg">
                             {formatTokenAmount(invoice.totalAmount, decimals)}
                         </span>
+                        <span className="text-[var(--ink-light)] text-xs">Creator receives</span>
+                        <span className="font-mono text-[var(--ink-dark)] text-right text-xs">{formatTokenAmount(netFromGross(invoice.totalAmount), decimals)}</span>
+                        <span className="text-[var(--ink-light)] text-xs">Platform fee ({FEE_PERCENT})</span>
+                        <span className="font-mono text-[var(--ink-light)] text-right text-xs">{formatTokenAmount(calculateFee(invoice.totalAmount), decimals)}</span>
                         {invoice.deadline > 0n && (<>
                             <span className="text-[var(--ink-light)]">Deadline</span>
                             <span className={`font-mono text-right ${expired ? 'text-[var(--stamp-grey)]' : 'text-[var(--ink-dark)]'}`}>

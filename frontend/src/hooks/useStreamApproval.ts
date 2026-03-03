@@ -5,26 +5,26 @@ import { getContract, OP_20_ABI } from 'opnet';
 import type { IOP20Contract } from 'opnet';
 import { useNetwork } from './useNetwork';
 import { providerService } from '../services/ProviderService';
-import { getBlockBillAddress } from '../config/contracts';
+import { getBlockBillStreamAddress } from '../config/contracts';
 import { getTxGasParams } from '../config/networks';
 
 const MAX_UINT256 = 2n ** 256n - 1n;
 
-interface UseTokenApprovalReturn {
+interface UseStreamApprovalReturn {
     readonly checkAllowance: (tokenAddress: string) => Promise<bigint>;
     readonly approve: (tokenAddress: string, amount?: bigint) => Promise<string>;
     readonly loading: boolean;
     readonly error: string | null;
 }
 
-export function useTokenApproval(): UseTokenApprovalReturn {
+export function useStreamApproval(): UseStreamApprovalReturn {
     const { walletAddress, address } = useWalletConnect();
     const { network } = useNetwork();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const spenderAddress = useMemo((): Address => {
-        const hex = getBlockBillAddress(network);
+        const hex = getBlockBillStreamAddress(network);
         return Address.fromString(hex);
     }, [network]);
 

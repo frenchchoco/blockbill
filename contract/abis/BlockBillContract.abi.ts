@@ -24,12 +24,6 @@ export const BlockBillContractAbi = [
         type: BitcoinAbiTypes.Function,
     },
     {
-        name: 'cancelInvoice',
-        inputs: [{ name: 'invoiceId', type: ABIDataTypes.UINT256 }],
-        outputs: [{ name: 'success', type: ABIDataTypes.BOOL }],
-        type: BitcoinAbiTypes.Function,
-    },
-    {
         name: 'markAsPaidBTC',
         inputs: [
             { name: 'invoiceId', type: ABIDataTypes.UINT256 },

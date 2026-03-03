@@ -1,12 +1,14 @@
-import { Routes, Route, Link } from 'react-router-dom';
+import { Routes, Route, Link, Navigate } from 'react-router-dom';
 import { Layout } from './components/layout/Layout';
 import { Landing } from './pages/Landing';
 import { CreateInvoice } from './pages/CreateInvoice';
 import { InvoiceView } from './pages/InvoiceView';
 import { PayInvoice } from './pages/PayInvoice';
-import { Dashboard } from './pages/Dashboard';
+import { DashboardPage } from './pages/DashboardPage';
 import { Receipt } from './pages/Receipt';
 import { HowTo } from './pages/HowTo';
+import { CreateStream } from './pages/CreateStream';
+import { StreamView } from './pages/StreamView';
 import { PaperCard } from './components/common/PaperCard';
 
 function NotFound(): React.JSX.Element {
@@ -31,8 +33,12 @@ function App(): React.JSX.Element {
                 <Route path="/create" element={<CreateInvoice />} />
                 <Route path="/invoice/:id" element={<InvoiceView />} />
                 <Route path="/pay/:id" element={<PayInvoice />} />
-                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/dashboard" element={<DashboardPage />} />
                 <Route path="/invoice/:id/receipt" element={<Receipt />} />
+                <Route path="/create/stream" element={<CreateStream />} />
+                <Route path="/streams" element={<Navigate to="/dashboard?tab=streams" replace />} />
+                <Route path="/streams/create" element={<Navigate to="/create/stream" replace />} />
+                <Route path="/stream/:id" element={<StreamView />} />
                 <Route path="/guide" element={<HowTo />} />
                 <Route path="*" element={<NotFound />} />
             </Routes>

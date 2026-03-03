@@ -13,8 +13,8 @@ import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
 import { friendlyError } from '../utils/errors';
 import { parseInvoiceProperties } from '../utils/invoice';
-
-const FEE_BPS = 50n;
+import { getTxGasParams } from '../config/networks';
+import { netFromGross, calculateFee, FEE_PERCENT } from '../utils/fee';
 const APPROVAL_KEY_PREFIX = 'bb_approve_';
 
 type StepStatus = 'waiting' | 'processing' | 'broadcast' | 'done' | 'error';
@@ -83,7 +83,7 @@ export function PayInvoice(): React.JSX.Element {
         if (!invoice || !address) return;
         if (approveStatus === 'done' || approveStatus === 'processing') return;
 
-        const storageKey = `${APPROVAL_KEY_PREFIX}${invoice.token}`;
+        const storageKey = `${APPROVAL_KEY_PREFIX}${invoice.token}_${id}`;
         let cancelled = false;
 
         const check = async (): Promise<void> => {
@@ -103,6 +103,8 @@ export function PayInvoice(): React.JSX.Element {
             const stored = localStorage.getItem(storageKey);
             if (stored && Date.now() - parseInt(stored, 10) < 30 * 60 * 1000) {
                 setApproveStatus('broadcast');
+                // Still run check() — approval may have already confirmed on-chain
+                void check();
                 return () => { cancelled = true; };
             }
             if (stored) localStorage.removeItem(storageKey);
@@ -128,7 +130,7 @@ export function PayInvoice(): React.JSX.Element {
 
             toast.dismiss('approve-confirm');
             setApproveStatus('broadcast');
-            localStorage.setItem(`${APPROVAL_KEY_PREFIX}${invoice.token}`, Date.now().toString());
+            localStorage.setItem(`${APPROVAL_KEY_PREFIX}${invoice.token}_${id}`, Date.now().toString());
             toast.success('Approval broadcast — waiting for block confirmation');
         } catch (err: unknown) {
             toast.dismiss('approve-confirm');
@@ -158,7 +160,7 @@ export function PayInvoice(): React.JSX.Element {
                 signer: null,
                 mldsaSigner: null,
                 refundTo: walletAddress,
-                maximumAllowedSatToSpend: 100_000n,
+                ...getTxGasParams(network),
                 network,
             });
 
@@ -205,7 +207,7 @@ export function PayInvoice(): React.JSX.Element {
     }
 
     // Check if the connected wallet is the invoice creator
-    const normalizeHex = (h: string): string => h.replace(/^0x/i, '').toLowerCase();
+    const normalizeHex = (h: string): string => h.replace(/^(0x)+/i, '').toLowerCase();
     const walletHex = address ? normalizeHex(address.toHex()) : '';
     const isCreator = walletHex !== '' && normalizeHex(invoice.creator) === walletHex;
 
@@ -222,8 +224,9 @@ export function PayInvoice(): React.JSX.Element {
 
     const token = findToken(invoice.token, network);
     const decimals = onChainDecimals ?? token?.decimals ?? 8;
-    const feeAmount = (invoice.totalAmount * FEE_BPS) / 10000n;
-    const creatorReceives = invoice.totalAmount - feeAmount;
+    // invoice.totalAmount is the gross (includes fee). Creator receives net.
+    const feeAmount = calculateFee(invoice.totalAmount);
+    const creatorReceives = netFromGross(invoice.totalAmount);
 
     // Payment was broadcast — show success with navigation options
     if (payStatus === 'done') {
@@ -280,10 +283,10 @@ export function PayInvoice(): React.JSX.Element {
                         </p>
                     </div>
                     <div className="grid grid-cols-2 gap-y-2 text-xs text-[var(--ink-light)] border-t border-[var(--border-paper)] pt-3">
-                        <span>Platform fee (0.5%)</span>
-                        <span className="text-right font-mono">{formatTokenAmount(feeAmount, decimals)}</span>
                         <span>Creator receives</span>
-                        <span className="text-right font-mono">{formatTokenAmount(creatorReceives, decimals)}</span>
+                        <span className="text-right font-mono font-medium text-[var(--ink-dark)]">{formatTokenAmount(creatorReceives, decimals)}</span>
+                        <span>Platform fee ({FEE_PERCENT})</span>
+                        <span className="text-right font-mono">{formatTokenAmount(feeAmount, decimals)}</span>
                     </div>
                 </div>
 

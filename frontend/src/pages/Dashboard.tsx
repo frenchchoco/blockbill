@@ -76,7 +76,7 @@ export function Dashboard(): React.JSX.Element {
                 return;
             }
 
-            const walletHex = address.toHex().toLowerCase();
+            const walletHex = address.toHex().replace(/^(0x)+/i, '').toLowerCase();
 
             const promises = Array.from({ length: globalCount }, (_, i) =>
                 contract.getInvoice(BigInt(i + 1)).catch(() => null),
@@ -90,8 +90,8 @@ export function Dashboard(): React.JSX.Element {
 
                 const inv = parseInvoiceProperties(BigInt(i + 1), invResult.properties);
 
-                const isCreator = inv.creator.toLowerCase() === walletHex;
-                const isRecipient = inv.recipient.toLowerCase() === walletHex;
+                const isCreator = inv.creator.replace(/^(0x)+/i, '').toLowerCase() === walletHex;
+                const isRecipient = inv.recipient.replace(/^(0x)+/i, '').toLowerCase() === walletHex;
                 if (activeTab === 'created' && isCreator) fetchedInvoices.push(inv);
                 else if (activeTab === 'received' && isRecipient) fetchedInvoices.push(inv);
             }
@@ -181,7 +181,6 @@ export function Dashboard(): React.JSX.Element {
     if (!walletAddress) {
         return (
             <div className="max-w-4xl mx-auto">
-                <h1 className="text-3xl font-serif text-[var(--ink-dark)] mb-8 text-center">My Invoices</h1>
                 <PaperCard className="text-center py-12">
                     <p className="text-[var(--ink-medium)] mb-4">Connect your wallet to see your invoices.</p>
                     <button type="button" onClick={openConnectModal}
@@ -195,8 +194,6 @@ export function Dashboard(): React.JSX.Element {
 
     return (
         <div className="max-w-4xl mx-auto">
-            <h1 className="text-3xl font-serif text-[var(--ink-dark)] mb-8 text-center">My Invoices</h1>
-
             {/* Tabs */}
             <div className="flex gap-8 mb-6 border-b border-[var(--border-paper)]">
                 {(['created', 'received'] as const).map((tab) => (
