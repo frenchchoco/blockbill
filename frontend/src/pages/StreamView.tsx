@@ -55,6 +55,8 @@ export function StreamView(): React.JSX.Element {
     const [storedReason, setStoredReason] = useState<string | null>(null);
     /** Non-null when a tx has been broadcast and is awaiting block confirmation. */
     const [pendingTx, setPendingTx] = useState<string | null>(null);
+    /** Transaction ID of the latest broadcast (for explorer links). */
+    const [lastTxId, setLastTxId] = useState<string | null>(null);
     /** Decrypted memo (from URL hash or localStorage draft). */
     const [memo, setMemo] = useState<string | null>(null);
     /** Whether the URL hash contains an encrypted memo (captured once at mount). */
@@ -161,6 +163,7 @@ export function StreamView(): React.JSX.Element {
         const snapshot = `${stream.status}:${stream.totalDeposited}:${stream.totalWithdrawn}`;
         if (prevStreamSnapshotRef.current !== undefined && prevStreamSnapshotRef.current !== snapshot) {
             setPendingTx(null);
+            setLastTxId(null);
             if (pendingTxTimerRef.current) { clearTimeout(pendingTxTimerRef.current); pendingTxTimerRef.current = null; }
         }
         prevStreamSnapshotRef.current = snapshot;
@@ -256,7 +259,9 @@ export function StreamView(): React.JSX.Element {
             const contract = contractService.getStreamContract(network, address);
             const simulation = await contract.withdraw(BigInt(id));
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            const receipt = await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            const txId = receipt.transactionId;
+            setLastTxId(txId);
             toast.success('Withdrawal broadcast! Will confirm in ~10 min.');
             setPendingAction(Number(id), 'withdraw');
             startPendingTx('Withdrawal pending confirmation…');
@@ -276,7 +281,9 @@ export function StreamView(): React.JSX.Element {
             const contract = contractService.getStreamContract(network, address);
             const simulation = await contract.withdrawTo(BigInt(id), toAddr);
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            const receipt = await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            const txId = receipt.transactionId;
+            setLastTxId(txId);
             toast.success('WithdrawTo broadcast! Will confirm in ~10 min.');
             setPendingAction(Number(id), 'withdraw');
             startPendingTx('WithdrawTo pending confirmation…');
@@ -348,7 +355,8 @@ export function StreamView(): React.JSX.Element {
             const contract = contractService.getStreamContract(network, address);
             const simulation = await contract.topUp(BigInt(id), parsedAmt);
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            const receipt = await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            setLastTxId(receipt.transactionId);
             toast.success('Top-up broadcast! Will confirm in ~10 min.');
             setPendingAction(Number(id), 'topUp');
             startPendingTx('Top-up pending confirmation…');
@@ -373,7 +381,8 @@ export function StreamView(): React.JSX.Element {
                 ? await contract.resumeStream(BigInt(id))
                 : await contract.pauseStream(BigInt(id));
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            const receipt = await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            setLastTxId(receipt.transactionId);
             toast.success(`Stream ${isPaused ? 'resume' : 'pause'} broadcast!`);
             setPendingAction(Number(id), isPaused ? 'resume' : 'pause');
             if (!isPaused && reason?.trim()) setStreamReason(Number(id), 'pause', reason);
@@ -395,7 +404,8 @@ export function StreamView(): React.JSX.Element {
             const contract = contractService.getStreamContract(network, address);
             const simulation = await contract.cancelStream(BigInt(id));
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            const receipt = await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            setLastTxId(receipt.transactionId);
             toast.success('Cancellation broadcast! Will confirm in ~10 min.');
             setPendingAction(Number(id), 'cancel');
             if (reason?.trim()) setStreamReason(Number(id), 'cancel', reason);
@@ -419,7 +429,8 @@ export function StreamView(): React.JSX.Element {
             // withdraw() has no caller restriction — funds always go to the on-chain recipient.
             const simulation = await contract.withdraw(BigInt(id));
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            const receipt = await simulation.sendTransaction({ signer: null, mldsaSigner: null, refundTo: walletAddress!, ...getTxGasParams(network), network });
+            setLastTxId(receipt.transactionId);
             toast.success('Claim for recipient broadcast!');
             setPendingAction(Number(id), 'withdraw');
             startPendingTx('Claim pending confirmation…');
@@ -603,9 +614,26 @@ export function StreamView(): React.JSX.Element {
                 <div className="space-y-4 pt-6 border-t border-[var(--border-paper)]">
                     {/* Pending tx banner */}
                     {pendingTx && (
-                        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-[var(--accent-gold)]/10 border border-[var(--accent-gold)]/30 animate-pulse">
-                            <span className="text-lg">⏳</span>
-                            <span className="text-sm text-[var(--accent-gold)] font-medium">{pendingTx}</span>
+                        <div className="px-4 py-3 rounded-lg bg-[var(--accent-gold)]/10 border border-[var(--accent-gold)]/30">
+                            <div className="flex items-center gap-2 animate-pulse">
+                                <span className="text-lg">⏳</span>
+                                <span className="text-sm text-[var(--accent-gold)] font-medium">{pendingTx}</span>
+                            </div>
+                            {lastTxId && (
+                                <div className="mt-2 flex flex-wrap gap-3 text-xs">
+                                    <span className="font-mono text-[var(--ink-light)] truncate max-w-[200px]" title={lastTxId}>TX: {lastTxId.slice(0, 10)}…{lastTxId.slice(-6)}</span>
+                                    <a href={`https://mempool.opnet.org/fr/testnet4/tx/${lastTxId}`}
+                                        target="_blank" rel="noopener noreferrer"
+                                        className="text-[var(--accent-gold)] hover:underline">
+                                        Mempool ↗
+                                    </a>
+                                    <a href={`https://opscan.org/tx/${lastTxId}?network=op_testnet`}
+                                        target="_blank" rel="noopener noreferrer"
+                                        className="text-[var(--accent-gold)] hover:underline">
+                                        OPScan ↗
+                                    </a>
+                                </div>
+                            )}
                         </div>
                     )}
 
