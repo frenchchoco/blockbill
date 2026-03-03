@@ -448,7 +448,6 @@ export function CreateStream(): React.JSX.Element {
                 stampColor="#2E7D32"
                 confirmedTitle="Stream Created"
                 confirmedSubtitle="Streaming on Bitcoin L1"
-                autoConfirmDelay={0}
             />
         )}
         <div className="max-w-6xl mx-auto">
