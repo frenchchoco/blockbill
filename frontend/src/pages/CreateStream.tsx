@@ -570,6 +570,9 @@ export function CreateStream(): React.JSX.Element {
                             <p className="text-xs text-[var(--ink-light)] mt-1.5">
                                 ~{BLOCKS_PER_HOUR} blocks/hour &middot; ~{BLOCKS_PER_DAY} blocks/day &middot; ~{BLOCKS_PER_MONTH.toLocaleString()} blocks/month
                             </p>
+                            <p className="text-xs text-[var(--ink-light)] mt-1 italic">
+                                Streaming starts when the transaction is confirmed on-chain (included in a block).
+                            </p>
                             {parsedRate > 0n && (
                                 <div className="mt-2 px-3 py-2 bg-[var(--paper-bg)] rounded-lg border border-[var(--border-paper)]">
                                     <p className="text-xs text-[var(--ink-medium)]">
