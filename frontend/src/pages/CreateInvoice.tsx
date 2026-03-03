@@ -120,6 +120,16 @@ export function CreateInvoice(): React.JSX.Element {
         return form.lineItems.reduce((sum, item) => sum + parseTokenAmount(item.amount || '0', decimals), 0n);
     }, [form.lineItems, decimals]);
 
+    /** True when line items are present and valid (all filled + sum matches total). */
+    const lineItemsValid = useMemo(() => {
+        if (form.lineItems.length === 0) return true;
+        const allFilled = form.lineItems.every(
+            (item) => item.description.trim() !== '' && item.amount.trim() !== '' && parseTokenAmount(item.amount, decimals) > 0n,
+        );
+        if (!allFilled) return false;
+        return lineItemsTotal === parsedAmount;
+    }, [form.lineItems, lineItemsTotal, parsedAmount, decimals]);
+
     const deadlineBlocks = useMemo((): number => {
         if (deadlinePreset === 'none') return 0;
         if (deadlinePreset === 'custom') return Math.max(0, Number(form.deadline) || 0);
@@ -563,10 +573,17 @@ export function CreateInvoice(): React.JSX.Element {
                         {/* Submit */}
                         <div className="pt-4 border-t border-[var(--border-paper)]">
                             <button type="submit"
-                                disabled={!walletAddress || submitting || !form.tokenAddress || !form.totalAmount}
+                                disabled={!walletAddress || submitting || !form.tokenAddress || !form.totalAmount || !lineItemsValid}
                                 className="w-full py-3.5 bg-[var(--accent-gold)] text-white font-medium rounded-lg text-lg hover:bg-[var(--accent-gold-light)] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md active:scale-[0.98]">
                                 {submitting ? 'Creating...' : 'Create Invoice'}
                             </button>
+                            {!lineItemsValid && form.lineItems.length > 0 && (
+                                <p className="text-xs text-[var(--stamp-red)] text-center mt-2">
+                                    {form.lineItems.some((item) => !item.description.trim() || !item.amount.trim() || parseTokenAmount(item.amount || '0', decimals) === 0n)
+                                        ? 'Each line item must have a description and a non-zero amount.'
+                                        : 'Line items total must equal the invoice amount.'}
+                                </p>
+                            )}
                         </div>
                     </form>
                 </PaperCard>
@@ -633,8 +650,14 @@ export function CreateInvoice(): React.JSX.Element {
                                             <span className="font-mono text-[var(--ink-dark)] shrink-0">{item.amount || '0'}</span>
                                         </div>
                                     ))}
-                                    {lineItemsTotal > 0n && parsedAmount > 0n && lineItemsTotal !== parsedAmount && (
-                                        <p className="text-xs text-[var(--stamp-orange)] mt-1">Line items total differs from invoice amount</p>
+                                    {form.lineItems.length > 0 && !lineItemsValid && (
+                                        <p className="text-xs text-[var(--stamp-red)] mt-1">
+                                            {form.lineItems.some((item) => !item.description.trim() || !item.amount.trim())
+                                                ? '⚠ Fill in all line item descriptions and amounts'
+                                                : lineItemsTotal !== parsedAmount
+                                                    ? `⚠ Items total ≠ invoice amount (${formatTokenAmount(lineItemsTotal, decimals)} vs ${formatTokenAmount(parsedAmount, decimals)})`
+                                                    : '⚠ Line item amounts must be greater than zero'}
+                                        </p>
                                     )}
                                 </div>
                             )}

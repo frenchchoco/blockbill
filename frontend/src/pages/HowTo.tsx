@@ -87,11 +87,12 @@ const INVOICE_STEPS: readonly GuideStep[] = [
     },
     {
         title: 'Pay an Invoice',
-        description: 'When you receive an invoice, connect your wallet and pay in two simple steps.',
+        description: 'When you receive an invoice, connect your wallet and pay in two simple steps. Before each transaction, you choose your fee rate.',
         tips: [
             'Open the invoice link and click "Pay Invoice"',
             'Step 1: Approve the token spend (one-time per token, or use unlimited approval)',
             'Step 2: Confirm the payment — funds go directly to the creator',
+            'Before each step, a Fee Selector shows live Economy/Standard/Priority rates from the network',
             'A 0.5% platform fee is deducted automatically',
             'The payment is recorded permanently on Bitcoin L1',
         ],
@@ -124,7 +125,7 @@ const STREAM_STEPS: readonly GuideStep[] = [
             'Choose "Until Exhausted" (deposit runs out) or "Fixed End Block"',
             'Add an optional encrypted memo — only you and the recipient can read it',
             'The live preview shows estimated duration (blocks + approximate time)',
-            'Approve the token spend, then create the stream on-chain',
+            'Approve the token spend, choose your fee rate, then create the stream',
         ],
         icon: ico('M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z'),
     },
@@ -142,9 +143,10 @@ const STREAM_STEPS: readonly GuideStep[] = [
     },
     {
         title: 'Withdraw, Pause, or Cancel',
-        description: 'Recipients withdraw anytime. Senders can pause, resume, top up, or cancel the stream.',
+        description: 'Recipients withdraw anytime. Senders can pause, resume, top up, or cancel the stream. Third parties can even help.',
         tips: [
             'Recipient: click "Withdraw" to claim all accrued tokens at any time',
+            'Third party: "Claim for Recipient" — you pay the tx fee, funds go to the recipient',
             'Sender: click "Pause" to freeze the stream, "Resume" to restart it',
             'Sender: "Top Up" adds more tokens to extend the stream duration',
             'Sender: "Cancel" stops the stream and returns unstreamed tokens',
@@ -196,6 +198,14 @@ const FAQ: readonly FaqItem[] = [
     {
         q: 'Can I cancel or pause a stream?',
         a: 'Yes. The sender can pause, resume, or cancel a stream at any time. When pausing or cancelling, you can optionally add a reason (stored locally in your browser). Cancelling returns all unstreamed tokens to the sender. The recipient can always withdraw what has already accrued.',
+    },
+    {
+        q: 'What is "Claim for Recipient"?',
+        a: 'Anyone can trigger a stream withdrawal on behalf of the recipient. You pay the Bitcoin transaction fee, but all the stream funds go directly to the recipient\'s wallet — not yours. It\'s a way to help someone claim their tokens without them having to sign a transaction themselves.',
+    },
+    {
+        q: 'How does the fee selector work?',
+        a: 'Before every transaction, BlockBill shows a Fee Selector with three tiers (Economy, Standard, Priority) using live fee rates from the network. You choose how fast you want your transaction confirmed. During fee wars, selecting a higher fee rate ensures faster confirmation.',
     },
     {
         q: 'What network does BlockBill run on?',
