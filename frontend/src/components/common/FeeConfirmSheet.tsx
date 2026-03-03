@@ -7,6 +7,8 @@ export interface FeeConfirmSheetProps {
     readonly liveRates: LiveFeeRates | null;
     readonly loading: boolean;
     readonly defaultFeeRate: number;
+    /** Optional minimum fee tier — tiers below this are disabled (UX guide). */
+    readonly minTier?: 'low' | 'medium' | 'high';
     readonly onConfirm: (feeRate: number) => void;
     readonly onCancel: () => void;
 }
@@ -23,23 +25,27 @@ const TIERS: Tier[] = [
     { label: 'Priority', key: 'high', description: 'Fast' },
 ];
 
+const TIER_RANK: Record<string, number> = { low: 0, medium: 1, high: 2 };
+
 export function FeeConfirmSheet({
-    open, liveRates, loading, defaultFeeRate, onConfirm, onCancel,
+    open, liveRates, loading, defaultFeeRate, minTier, onConfirm, onCancel,
 }: FeeConfirmSheetProps): React.JSX.Element | null {
+    const minRank = TIER_RANK[minTier ?? 'low'] ?? 0;
     const [selectedTier, setSelectedTier] = useState<'low' | 'medium' | 'high' | 'custom'>('medium');
     const [customValue, setCustomValue] = useState('');
     const [customError, setCustomError] = useState('');
     const panelRef = useRef<HTMLDivElement>(null);
 
-    // Pre-select the tier closest to the user's default fee rate
+    // Pre-select the tier closest to the user's default fee rate (respecting minTier)
     useEffect(() => {
         if (!open || !liveRates) return;
-        const diffs = TIERS.map((t) => ({ key: t.key, diff: Math.abs(liveRates[t.key] - defaultFeeRate) }));
+        const eligible = TIERS.filter((t) => (TIER_RANK[t.key] ?? 0) >= minRank);
+        const diffs = eligible.map((t) => ({ key: t.key, diff: Math.abs(liveRates[t.key] - defaultFeeRate) }));
         diffs.sort((a, b) => a.diff - b.diff);
-        setSelectedTier(diffs[0].key);
+        setSelectedTier(diffs[0]?.key ?? 'medium');
         setCustomValue('');
         setCustomError('');
-    }, [open, liveRates, defaultFeeRate]);
+    }, [open, liveRates, defaultFeeRate, minRank]);
 
     // Close on Escape
     useEffect(() => {
@@ -59,26 +65,29 @@ export function FeeConfirmSheet({
         return () => document.removeEventListener('mousedown', handler);
     }, [open, onCancel]);
 
+    // Compute the minimum custom rate from minTier (or 1 sat/vB default)
+    const customFloor = minTier && liveRates ? liveRates[minTier] : 1;
+
     const handleCustomChange = useCallback((raw: string) => {
         const cleaned = raw.replace(/[^0-9.]/g, '');
         setCustomValue(cleaned);
         setSelectedTier('custom');
         if (!cleaned) { setCustomError(''); return; }
         const v = Number(cleaned);
-        if (!Number.isFinite(v) || v < 1) setCustomError('Min: 1 sat/vB');
+        if (!Number.isFinite(v) || v < customFloor) setCustomError(`Min: ${customFloor} sat/vB`);
         else if (v > 2000) setCustomError('Max: 2,000 sat/vB');
         else setCustomError('');
-    }, []);
+    }, [customFloor]);
 
     const getSelectedRate = useCallback((): number | null => {
         if (selectedTier === 'custom') {
             const v = Number(customValue);
-            if (!Number.isFinite(v) || v < 1 || v > 2000) return null;
+            if (!Number.isFinite(v) || v < customFloor || v > 2000) return null;
             return v;
         }
         if (!liveRates) return defaultFeeRate;
         return liveRates[selectedTier];
-    }, [selectedTier, customValue, liveRates, defaultFeeRate]);
+    }, [selectedTier, customValue, liveRates, defaultFeeRate, customFloor]);
 
     const handleConfirm = useCallback(() => {
         const rate = getSelectedRate();
@@ -149,15 +158,19 @@ export function FeeConfirmSheet({
                                 {TIERS.map((tier) => {
                                     const rate = liveRates ? liveRates[tier.key] : defaultFeeRate;
                                     const isActive = selectedTier === tier.key;
+                                    const isBelowMin = (TIER_RANK[tier.key] ?? 0) < minRank;
                                     return (
                                         <button
                                             key={tier.key}
                                             type="button"
+                                            disabled={isBelowMin}
                                             onClick={() => setSelectedTier(tier.key)}
                                             className={`flex flex-col items-center px-2 py-3 rounded-lg border text-xs transition-all ${
-                                                isActive
-                                                    ? 'border-[var(--accent-gold)] bg-[var(--accent-gold)]/8 text-[var(--ink-dark)]'
-                                                    : 'border-[var(--border-paper)] bg-[var(--paper-bg)]/50 text-[var(--ink-medium)] hover:border-[var(--accent-gold)]/40'
+                                                isBelowMin
+                                                    ? 'border-[var(--border-paper)] bg-[var(--paper-bg)]/30 text-[var(--ink-light)]/50 cursor-not-allowed opacity-40'
+                                                    : isActive
+                                                        ? 'border-[var(--accent-gold)] bg-[var(--accent-gold)]/8 text-[var(--ink-dark)]'
+                                                        : 'border-[var(--border-paper)] bg-[var(--paper-bg)]/50 text-[var(--ink-medium)] hover:border-[var(--accent-gold)]/40'
                                             }`}
                                         >
                                             <span className="font-medium text-[11px] mb-0.5">{tier.label}</span>

@@ -509,7 +509,7 @@ export function StreamView(): React.JSX.Element {
             // withdraw() has no caller restriction — funds always go to the on-chain recipient.
             const simulation = await contract.withdraw(BigInt(id));
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
-            const receipt = await sendWithFeeSelector(simulation, { refundTo: walletAddress!, network });
+            const receipt = await sendWithFeeSelector(simulation, { refundTo: walletAddress!, network, minTier: 'medium' });
             setLastTxId(receipt.transactionId);
             setWithdrawable(0n); // optimistic — prevents double claim
             localStorage.setItem(`${WITHDRAW_BROADCAST_PREFIX}${id}`, Date.now().toString());

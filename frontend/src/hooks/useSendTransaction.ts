@@ -7,6 +7,8 @@ import { FeeConfirmSheet } from '../components/common/FeeConfirmSheet';
 export interface SendOptions {
     readonly refundTo: string;
     readonly network: Network;
+    /** Enforce a minimum fee tier (e.g. 'medium' disables Economy). */
+    readonly minTier?: 'low' | 'medium' | 'high';
 }
 
 /** The minimal shape returned by simulation.sendTransaction(). */
@@ -52,6 +54,7 @@ export function useSendTransaction(): UseSendTransactionReturn {
     const [loading, setLoading] = useState(false);
     const [liveRates, setLiveRates] = useState<LiveFeeRates | null>(null);
     const [defaultRate, setDefaultRate] = useState(15);
+    const [minTier, setMinTier] = useState<'low' | 'medium' | 'high' | undefined>(undefined);
     const pendingRef = useRef<PendingTx | null>(null);
 
     const sendWithFeeSelector: SendWithFeeSelectorFn = useCallback(
@@ -62,6 +65,7 @@ export function useSendTransaction(): UseSendTransactionReturn {
                 // Get current default rate for pre-selection
                 const gasParams = getTxGasParams(options.network);
                 setDefaultRate(gasParams.feeRate);
+                setMinTier(options.minTier);
 
                 // Open the sheet and fetch live rates
                 setLoading(true);
@@ -112,6 +116,7 @@ export function useSendTransaction(): UseSendTransactionReturn {
         liveRates,
         loading,
         defaultFeeRate: defaultRate,
+        minTier,
         onConfirm: handleConfirm,
         onCancel: handleCancel,
     });
