@@ -415,7 +415,6 @@ export function StreamDashboard(): React.JSX.Element {
                         const tok = findToken(stream.token, network);
                         const dec = tokenDecimals[stream.token] ?? tok?.decimals ?? 8;
                         const wd = withdrawables[stream.id] ?? 0n;
-                        const streamed = stream.totalWithdrawn + wd;
                         const withdrawnPct = stream.totalDeposited > 0n
                             ? Number((stream.totalWithdrawn * 10000n) / stream.totalDeposited) / 100
                             : 0;
