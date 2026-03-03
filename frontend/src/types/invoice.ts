@@ -19,7 +19,6 @@ export interface InvoiceData {
     readonly paidBy: string;
     readonly paidAtBlock: bigint;
     readonly createdAtBlock: bigint;
-    readonly btcTxHash: string;
     readonly lineItemCount: number;
 }
 

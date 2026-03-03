@@ -681,9 +681,9 @@ export class BlockBillStreamContract extends ReentrancyGuard {
         const count: u256 = this.loadU256At(this.pSenderCount, addrKey);
         const countU32: u32 = count.toU32();
 
-        // Skip silently when index is full
+        // Fail explicitly when index is full so the user knows
         if (countU32 >= MAX_INDEX_ENTRIES) {
-            return;
+            throw new Revert('Sender index full');
         }
 
         // Use wrapping mul/add for storage key derivation
@@ -702,9 +702,9 @@ export class BlockBillStreamContract extends ReentrancyGuard {
         const count: u256 = this.loadU256At(this.pRecipientCount, addrKey);
         const countU32: u32 = count.toU32();
 
-        // Skip silently when index is full
+        // Fail explicitly when index is full so the user knows
         if (countU32 >= MAX_INDEX_ENTRIES) {
-            return;
+            throw new Revert('Recipient index full');
         }
 
         // Use wrapping mul/add for storage key derivation

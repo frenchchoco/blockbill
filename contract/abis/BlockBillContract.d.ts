@@ -30,16 +30,6 @@ export type PayInvoice = CallResult<
 >;
 
 /**
- * @description Represents the result of the markAsPaidBTC function call.
- */
-export type MarkAsPaidBTC = CallResult<
-    {
-        success: boolean;
-    },
-    OPNetEvent<never>[]
->;
-
-/**
  * @description Represents the result of the setFeeRecipient function call.
  */
 export type SetFeeRecipient = CallResult<
@@ -65,7 +55,6 @@ export type GetInvoice = CallResult<
         paidBy: Address;
         paidAtBlock: bigint;
         memo: string;
-        btcTxHash: string;
         lineItemCount: number;
     },
     OPNetEvent<never>[]
@@ -127,7 +116,6 @@ export interface IBlockBillContract extends IOP_NETContract {
         lineItemCount: number,
     ): Promise<CreateInvoice>;
     payInvoice(invoiceId: bigint): Promise<PayInvoice>;
-    markAsPaidBTC(invoiceId: bigint, btcTxHash: string): Promise<MarkAsPaidBTC>;
     setFeeRecipient(newFeeRecipient: Address): Promise<SetFeeRecipient>;
     getInvoice(invoiceId: bigint): Promise<GetInvoice>;
     getLineItems(invoiceId: bigint): Promise<GetLineItems>;

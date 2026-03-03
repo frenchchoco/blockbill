@@ -9,7 +9,7 @@ import type { StreamData } from '../types/stream';
 import { useNetwork } from '../hooks/useNetwork';
 import { useAddressValidation } from '../hooks/useAddressValidation';
 import { contractService } from '../services/ContractService';
-import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
+import { findToken, formatTokenAmount, formatAddress, parseTokenAmount } from '../config/tokens';
 import { friendlyError, isUserCancel } from '../utils/errors';
 import { getMemoFromHash, decryptMemo, encryptMemo, buildMemoUrl } from '../utils/streamMemo';
 import { useSendTransaction } from '../hooks/useSendTransaction';
@@ -314,6 +314,11 @@ export function StreamView(): React.JSX.Element {
 
     const ratePerDay = stream ? stream.ratePerBlock * BigInt(BLOCKS_PER_DAY) : 0n;
     const exhausted = stream ? isStreamExhausted(stream) : false;
+
+    // Top-up fee breakdown
+    const topUpParsed = useMemo(() => parseTokenAmount(topUpAmount || '0', decimals), [topUpAmount, decimals]);
+    const topUpFee = useMemo(() => topUpParsed > 0n ? (topUpParsed * 50n) / 10000n : 0n, [topUpParsed]);
+    const topUpNet = useMemo(() => topUpParsed - topUpFee, [topUpParsed, topUpFee]);
 
     // --- Action handlers ---
 
@@ -790,6 +795,18 @@ export function StreamView(): React.JSX.Element {
                                             <input type="text" inputMode="decimal" value={topUpAmount}
                                                 onChange={(e) => { setTopUpAmount(e.target.value); setTopUpApproved(false); }}
                                                 placeholder="0.00" className={inputCls + ' font-mono'} />
+                                            {topUpParsed > 0n && (
+                                                <div className="px-3 py-2 bg-[var(--paper-card)]/60 rounded border border-[var(--border-paper)] text-xs space-y-1">
+                                                    <div className="flex justify-between text-[var(--ink-light)]">
+                                                        <span>Platform fee (0.5%)</span>
+                                                        <span className="font-mono">−{formatTokenAmount(topUpFee, decimals)}</span>
+                                                    </div>
+                                                    <div className="flex justify-between text-[var(--ink-dark)] font-medium">
+                                                        <span>Added to stream</span>
+                                                        <span className="font-mono">{formatTokenAmount(topUpNet, decimals)} {token?.symbol ?? ''}</span>
+                                                    </div>
+                                                </div>
+                                            )}
                                             {topUpCheckingAllowance ? (
                                                 <p className="text-xs text-[var(--ink-light)] animate-pulse">Checking allowance...</p>
                                             ) : (

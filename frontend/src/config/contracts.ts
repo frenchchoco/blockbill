@@ -9,8 +9,8 @@ export interface ContractAddresses {
 
 const CONTRACT_ADDRESSES: Record<string, ContractAddresses> = {
     [networkKey(networks.opnetTestnet)]: {
-        blockbill: '0xfd9fea46fc9eec81287dcdd239b913322690ac70ea65425ee362c0f13d5f9c7a',
-        blockbillStream: '0xa4545356dc987d44ba3d95924616fa254658058ae3d39bd36b320baca04feaec',
+        blockbill: '0xd22b26a44ad94e1aad32544f52a138e631d8e3689a65938d6b08cb555bfd74ef',
+        blockbillStream: '0x0c2d04acfa8f1e78c542e024dc1468d27f5dfa156a82864cf2b838ebd65219ed',
     },
     [networkKey(networks.regtest)]: {
         blockbill: '',

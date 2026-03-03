@@ -53,7 +53,6 @@ export const BLOCKBILL_ABI: BitcoinInterfaceAbi = [
             { name: 'paidBy', type: ABIDataTypes.ADDRESS },
             { name: 'paidAtBlock', type: ABIDataTypes.UINT64 },
             { name: 'memo', type: ABIDataTypes.STRING },
-            { name: 'btcTxHash', type: ABIDataTypes.STRING },
             { name: 'lineItemCount', type: ABIDataTypes.UINT16 },
         ],
     },
@@ -105,7 +104,7 @@ export interface IBlockBillContract extends BaseContractProperties {
     getInvoice(invoiceId: bigint): Promise<CallResult<{
         creator: Address; token: Address; totalAmount: bigint; recipient: Address;
         status: number; deadline: bigint; taxBps: number; createdAtBlock: bigint;
-        paidBy: Address; paidAtBlock: bigint; memo: string; btcTxHash: string;
+        paidBy: Address; paidAtBlock: bigint; memo: string;
         lineItemCount: number;
     }, []>>;
 

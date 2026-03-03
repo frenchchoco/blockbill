@@ -56,8 +56,7 @@ Traditional invoicing requires trust: "Did they pay? When? How much?" And tradit
 │   (Vite + TS)        │      │                            │
 └──────────────────────┘      │   BlockBillContract        │
                               │   ├─ createInvoice()       │
-                              │   ├─ payInvoice()          │
-                              │   └─ markAsPaidBTC()       │
+                              │   └─ payInvoice()          │
                               │                            │
                               │   BlockBillStreamContract  │
                               │   ├─ createStream()        │
@@ -80,7 +79,6 @@ Traditional invoicing requires trust: "Did they pay? When? How much?" And tradit
 |--------|-------------|
 | `createInvoice()` | Create an invoice with token, amount, optional memo/deadline/tax/line items |
 | `payInvoice()` | Pay via OP-20 transferFrom — 99.5% to creator, 0.5% fee |
-| `markAsPaidBTC()` | Creator marks invoice as paid by BTC transaction (manual proof) |
 | `getInvoice()` | Read all invoice details |
 | `getLineItems()` | Read line items for an invoice |
 | `getInvoicesByCreator()` | List invoices created by an address |
@@ -176,7 +174,7 @@ No code changes needed — the architecture is network-agnostic.
 - **Collision-Free Storage** — Unique storage pointers via `Blockchain.nextPointer`, custom key derivation verified against `u256To30Bytes` truncation issues
 - **SafeMath** — All arithmetic uses `SafeMath` for overflow protection
 - **Authorization Checks** — `withdraw()` is public (funds always go to recipient); `withdrawTo()` requires recipient; `pause/resume/cancel/topUp` require sender
-- **DOS-Resistant Indexes** — Index operations silently skip when full instead of reverting
+- **Index Overflow Protection** — Index operations revert when full, preventing silent data loss
 
 ### Frontend Security
 - **Address Validation** — Hex/bech32/P2OP format validation via AddressVerificator
@@ -196,7 +194,7 @@ Built for [vibecode.finance](https://vibecodedotfinance.vercel.app/challenge) We
 - **100% OPNet Aligned** — Strict TypeScript Law 2026, all SDK conventions (`getContract` → `simulate` → `sendTransaction`), proper `Address` object handling, no raw PSBT, no deprecated ECDSA — built following Bob's development guidelines
 - **Checks-Effects-Interactions** — All state mutations before external `TransferHelper.transferFrom` calls, preventing reentrancy
 - **Collision-Free Storage** — Unique storage pointers via `Blockchain.nextPointer`, custom key derivation verified against `u256To30Bytes` truncation issues
-- **DOS-Resistant Indexes** — Index operations silently skip when full instead of reverting, preventing spam-based denial-of-service
+- **Index Overflow Protection** — Index operations revert when full, preventing silent data loss from exceeding storage limits
 - **ML-DSA Ready** — Architecture prepared for quantum-resistant signatures (OPNet standard, no ECDSA)
 - **Live Fee Selector** — Users choose Economy/Standard/Priority fee rate before each transaction, with live rates fetched from the network RPC
 - **Encrypted Stream Memos** — AES-256-GCM encryption with key derived from sender+recipient addresses — only participants can read

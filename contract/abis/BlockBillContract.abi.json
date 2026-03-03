@@ -61,28 +61,6 @@
             ]
         },
         {
-            "name": "markAsPaidBTC",
-            "type": "Function",
-            "payable": false,
-            "onlyOwner": false,
-            "inputs": [
-                {
-                    "name": "invoiceId",
-                    "type": "UINT256"
-                },
-                {
-                    "name": "btcTxHash",
-                    "type": "STRING"
-                }
-            ],
-            "outputs": [
-                {
-                    "name": "success",
-                    "type": "BOOL"
-                }
-            ]
-        },
-        {
             "name": "setFeeRecipient",
             "type": "Function",
             "payable": false,
@@ -154,10 +132,6 @@
                 },
                 {
                     "name": "memo",
-                    "type": "STRING"
-                },
-                {
-                    "name": "btcTxHash",
                     "type": "STRING"
                 },
                 {

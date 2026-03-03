@@ -47,7 +47,6 @@ export class BlockBillContract extends ReentrancyGuard {
     private readonly pPaidBy: u16 = Blockchain.nextPointer;
     private readonly pPaidAtBlock: u16 = Blockchain.nextPointer;
     private readonly pCreatedAtBlock: u16 = Blockchain.nextPointer;
-    private readonly pBtcTxHash: u16 = Blockchain.nextPointer;
     private readonly pLineItemCount: u16 = Blockchain.nextPointer;
 
     // Line item field pointers (keyed by invoiceId * MAX_LINE_ITEMS + index)
@@ -140,10 +139,17 @@ export class BlockBillContract extends ReentrancyGuard {
         this.storeU64At(this.pCreatedAtBlock, invoiceId, Blockchain.block.number);
         this.storeU16At(this.pLineItemCount, invoiceId, lineItemCount);
 
-        // Store line items
+        // Store line items and validate their sum
+        let lineItemSum: u256 = u256.Zero;
         for (let i: u16 = 0; i < lineItemCount; i++) {
             const desc: string = calldata.readStringWithLength();
             const amount: u256 = calldata.readU256();
+
+            if (amount == u256.Zero) {
+                throw new Revert('Line item amount must be > 0');
+            }
+
+            lineItemSum = SafeMath.add(lineItemSum, amount);
 
             const lineKey: u256 = SafeMath.add(
                 SafeMath.mul(invoiceId, u256.fromU32(MAX_LINE_ITEMS)),
@@ -151,6 +157,11 @@ export class BlockBillContract extends ReentrancyGuard {
             );
             this.storeShortString(this.pLineDesc, lineKey, desc);
             this.storeU256At(this.pLineAmount, lineKey, amount);
+        }
+
+        // Enforce: line items total must match the invoice amount
+        if (lineItemCount > 0 && lineItemSum != totalAmount) {
+            throw new Revert('Line items do not match total');
         }
 
         // Add to creator index
@@ -226,49 +237,6 @@ export class BlockBillContract extends ReentrancyGuard {
         return writer;
     }
 
-    @method(
-        { name: 'invoiceId', type: ABIDataTypes.UINT256 },
-        { name: 'btcTxHash', type: ABIDataTypes.STRING },
-    )
-    @returns({ name: 'success', type: ABIDataTypes.BOOL })
-    public markAsPaidBTC(calldata: Calldata): BytesWriter {
-        const invoiceId: u256 = calldata.readU256();
-        this.assertInvoiceExists(invoiceId);
-        const btcTxHash: string = calldata.readStringWithLength();
-        const caller: Address = Blockchain.tx.sender;
-
-        // Validate btcTxHash is not empty
-        if (btcTxHash.length == 0) {
-            throw new Revert('BTC tx hash required');
-        }
-
-        // Verify caller is the creator
-        const creator: Address = this.loadAddressAt(this.pCreator, invoiceId);
-        if (!caller.equals(creator)) {
-            throw new Revert('Only creator can mark as paid');
-        }
-
-        // Verify status is pending
-        const status: u8 = this.loadU8At(this.pStatus, invoiceId);
-        if (status != STATUS_PENDING) {
-            throw new Revert('Invoice is not pending');
-        }
-
-        // Update status to PAID
-        this.storeU8At(this.pStatus, invoiceId, STATUS_PAID);
-
-        // Store BTC tx hash (long string for full 64-char hex hash)
-        this.storeLongString(this.pBtcTxHash, invoiceId, btcTxHash);
-
-        // Store paid metadata
-        this.storeAddressAt(this.pPaidBy, invoiceId, caller);
-        this.storeU64At(this.pPaidAtBlock, invoiceId, Blockchain.block.number);
-
-        const writer: BytesWriter = new BytesWriter(1);
-        writer.writeBoolean(true);
-        return writer;
-    }
-
     @method({ name: 'newFeeRecipient', type: ABIDataTypes.ADDRESS })
     @returns({ name: 'success', type: ABIDataTypes.BOOL })
     public setFeeRecipient(calldata: Calldata): BytesWriter {
@@ -310,7 +278,6 @@ export class BlockBillContract extends ReentrancyGuard {
         { name: 'paidBy', type: ABIDataTypes.ADDRESS },
         { name: 'paidAtBlock', type: ABIDataTypes.UINT64 },
         { name: 'memo', type: ABIDataTypes.STRING },
-        { name: 'btcTxHash', type: ABIDataTypes.STRING },
         { name: 'lineItemCount', type: ABIDataTypes.UINT16 },
     )
     public getInvoice(calldata: Calldata): BytesWriter {
@@ -327,11 +294,10 @@ export class BlockBillContract extends ReentrancyGuard {
         const paidBy: Address = this.loadAddressAt(this.pPaidBy, invoiceId);
         const paidAtBlock: u64 = this.loadU64At(this.pPaidAtBlock, invoiceId);
         const memo: string = this.loadLongString(this.pMemo, invoiceId);
-        const btcTxHash: string = this.loadLongString(this.pBtcTxHash, invoiceId);
         const lineItemCount: u16 = this.loadU16At(this.pLineItemCount, invoiceId);
 
-        // 4*32 (addresses) + 32 (amount) + 1 + 8 + 2 + 8 + 8 + ~226 (memo) + ~226 (txHash) + 2 = ~577
-        const writer: BytesWriter = new BytesWriter(700);
+        // 4*32 (addresses) + 32 (amount) + 1 + 8 + 2 + 8 + 8 + ~226 (memo) + 2 = ~419
+        const writer: BytesWriter = new BytesWriter(500);
         writer.writeAddress(creator);
         writer.writeAddress(token);
         writer.writeU256(totalAmount);
@@ -343,7 +309,6 @@ export class BlockBillContract extends ReentrancyGuard {
         writer.writeAddress(paidBy);
         writer.writeU64(paidAtBlock);
         writer.writeStringWithLength(memo);
-        writer.writeStringWithLength(btcTxHash);
         writer.writeU16(lineItemCount);
         return writer;
     }
@@ -624,9 +589,9 @@ export class BlockBillContract extends ReentrancyGuard {
         const count: u256 = this.loadU256At(this.pCreatorCount, addrKey);
         const countU32: u32 = count.toU32();
 
-        // Skip silently when index is full — prevents DOS via spam invoices
+        // Fail explicitly when index is full so the user knows
         if (countU32 >= MAX_INDEX_ENTRIES) {
-            return;
+            throw new Revert('Creator index full');
         }
 
         // Use wrapping mul/add for storage key derivation (addrKey * MAX overflows with SafeMath)
@@ -645,9 +610,9 @@ export class BlockBillContract extends ReentrancyGuard {
         const count: u256 = this.loadU256At(this.pRecipientCount, addrKey);
         const countU32: u32 = count.toU32();
 
-        // Skip silently when index is full — prevents DOS via spam invoices
+        // Fail explicitly when index is full so the user knows
         if (countU32 >= MAX_INDEX_ENTRIES) {
-            return;
+            throw new Revert('Recipient index full');
         }
 
         // Use wrapping mul/add for storage key derivation (addrKey * MAX overflows with SafeMath)

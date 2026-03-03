@@ -15,7 +15,6 @@ interface RawInvoiceProperties {
     readonly paidBy?: Address;
     readonly paidAtBlock?: bigint;
     readonly memo?: string;
-    readonly btcTxHash?: string;
     readonly lineItemCount?: number;
 }
 
@@ -37,7 +36,6 @@ export function parseInvoiceProperties(id: bigint, p: RawInvoiceProperties): Inv
         paidBy: p.paidBy?.toHex() ?? '',
         paidAtBlock: p.paidAtBlock ?? 0n,
         createdAtBlock: p.createdAtBlock ?? 0n,
-        btcTxHash: p.btcTxHash ?? '',
         lineItemCount: p.lineItemCount ?? 0,
     };
 }

@@ -24,15 +24,6 @@ export const BlockBillContractAbi = [
         type: BitcoinAbiTypes.Function,
     },
     {
-        name: 'markAsPaidBTC',
-        inputs: [
-            { name: 'invoiceId', type: ABIDataTypes.UINT256 },
-            { name: 'btcTxHash', type: ABIDataTypes.STRING },
-        ],
-        outputs: [{ name: 'success', type: ABIDataTypes.BOOL }],
-        type: BitcoinAbiTypes.Function,
-    },
-    {
         name: 'setFeeRecipient',
         inputs: [{ name: 'newFeeRecipient', type: ABIDataTypes.ADDRESS }],
         outputs: [{ name: 'success', type: ABIDataTypes.BOOL }],
@@ -53,7 +44,6 @@ export const BlockBillContractAbi = [
             { name: 'paidBy', type: ABIDataTypes.ADDRESS },
             { name: 'paidAtBlock', type: ABIDataTypes.UINT64 },
             { name: 'memo', type: ABIDataTypes.STRING },
-            { name: 'btcTxHash', type: ABIDataTypes.STRING },
             { name: 'lineItemCount', type: ABIDataTypes.UINT16 },
         ],
         type: BitcoinAbiTypes.Function,

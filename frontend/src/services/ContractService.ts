@@ -29,7 +29,8 @@ class ContractService {
      * - P2OP / taproot / bech32: resolve via provider.getPublicKeyInfo() RPC
      */
     public async resolveAddress(addr: string, network: Network, isContract: boolean = false): Promise<Address> {
-        const cacheKey = `${addr}:${isContract}`;
+        const networkId = network.bech32Opnet ?? network.bech32 ?? 'unknown';
+        const cacheKey = `${addr}:${networkId}:${isContract}`;
         const cached = this.addressCache.get(cacheKey);
         if (cached) return cached;
 
