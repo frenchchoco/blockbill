@@ -284,7 +284,6 @@ export function CreateInvoice(): React.JSX.Element {
                 stampColor="#B8860B"
                 confirmedTitle="Invoice Created"
                 confirmedSubtitle="Recorded on Bitcoin L1"
-                autoConfirmDelay={0}
             />
         )}
         <div className="max-w-6xl mx-auto">

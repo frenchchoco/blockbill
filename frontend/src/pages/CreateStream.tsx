@@ -3,11 +3,13 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useWalletConnect } from '@btc-vision/walletconnect';
 import toast from 'react-hot-toast';
 import { PaperCard } from '../components/common/PaperCard';
+import { SealAnimation } from '../components/common/SealAnimation';
 import { useNetwork } from '../hooks/useNetwork';
 import { useBlockNumber } from '../hooks/useBlockNumber';
 import { useAddressValidation } from '../hooks/useAddressValidation';
 import { useStreamApproval } from '../hooks/useStreamApproval';
 import { contractService } from '../services/ContractService';
+import { providerService } from '../services/ProviderService';
 import { getKnownTokens, findToken, parseTokenAmount, formatTokenAmount, formatAddress } from '../config/tokens';
 import type { TokenInfo } from '../config/tokens';
 import { friendlyError } from '../utils/errors';
@@ -73,6 +75,8 @@ export function CreateStream(): React.JSX.Element {
     const [approveStatus, setApproveStatus] = useState<ApproveStatus>('waiting');
     const [unlimitedApproval, setUnlimitedApproval] = useState(false);
     const [durationPreset, setDurationPreset] = useState<DurationPreset>('1m');
+    const [showSeal, setShowSeal] = useState(false);
+    const [sealConfirmed, setSealConfirmed] = useState(false);
     const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
     const { checkAllowance } = useStreamApproval();
 
@@ -355,12 +359,10 @@ export function CreateStream(): React.JSX.Element {
             });
 
             toast.dismiss(submitToast);
-            toast.success('Stream created! Waiting for confirmation...');
 
             const txId = receipt.transactionId;
 
             // Mark the draft as "pending" so the dashboard shows a waiting card.
-            // If there was no draft, create one in pending state.
             if (editingDraftId) {
                 markDraftPending(editingDraftId, txId);
             } else {
@@ -379,7 +381,22 @@ export function CreateStream(): React.JSX.Element {
                 markDraftPending(newDraftId, txId);
             }
 
-            navigate('/dashboard?tab=streams');
+            // Show seal animation, poll for confirmation
+            setShowSeal(true);
+            setSealConfirmed(false);
+
+            const provider = providerService.getProvider(network);
+            const pollConfirmation = async (): Promise<void> => {
+                for (let attempt = 1; attempt <= 12; attempt++) {
+                    await new Promise((r) => setTimeout(r, 5000));
+                    try {
+                        const tx = await provider.getTransaction(txId);
+                        if (tx) { setSealConfirmed(true); return; }
+                    } catch { /* retry */ }
+                }
+                // polling timed out — user can click "Continue without waiting"
+            };
+            void pollConfirmation();
         } catch (err: unknown) {
             toast.dismiss();
             toast.error(friendlyError(err instanceof Error ? err.message : String(err)));
@@ -422,6 +439,18 @@ export function CreateStream(): React.JSX.Element {
     const labelCls = 'block text-sm font-serif font-medium text-[var(--ink-dark)] mb-1.5';
 
     return (
+        <>
+        {showSeal && (
+            <SealAnimation
+                confirmed={sealConfirmed}
+                onComplete={() => navigate('/dashboard?tab=streams')}
+                stampLabel="STREAMING"
+                stampColor="#2E7D32"
+                confirmedTitle="Stream Created"
+                confirmedSubtitle="Streaming on Bitcoin L1"
+                autoConfirmDelay={0}
+            />
+        )}
         <div className="max-w-6xl mx-auto">
             <h1 className="text-3xl font-serif text-[var(--ink-dark)] mb-8 text-center">Create Stream</h1>
 
@@ -848,5 +877,6 @@ export function CreateStream(): React.JSX.Element {
                 </div>
             </div>
         </div>
+        </>
     );
 }

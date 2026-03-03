@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 
 interface SealAnimationProps {
     /** When true, the final stamp slams down and the animation completes */
@@ -24,6 +24,24 @@ interface SealAnimationProps {
 
 type Phase = 'enter' | 'waiting' | 'pending-stamp' | 'pending-settle' | 'stamp' | 'settle' | 'done';
 
+/* ── Binary rain columns (generated once) ──────────────────────── */
+const COLUMN_COUNT = 9;
+const CHARS_PER_COL = 24;
+
+function generateBinaryColumns(): string[] {
+    const cols: string[] = [];
+    for (let c = 0; c < COLUMN_COUNT; c++) {
+        let str = '';
+        for (let i = 0; i < CHARS_PER_COL; i++) {
+            str += Math.random() > 0.5 ? '1' : '0';
+            // occasional space for breathing
+            if (Math.random() > 0.7) str += ' ';
+        }
+        cols.push(str);
+    }
+    return cols;
+}
+
 export function SealAnimation({
     confirmed,
     onComplete,
@@ -41,8 +59,13 @@ export function SealAnimation({
     const onCompleteRef = useRef(onComplete);
     onCompleteRef.current = onComplete;
 
+    const binaryCols = useMemo(() => generateBinaryColumns(), []);
+
     const order: Phase[] = ['enter', 'waiting', 'pending-stamp', 'pending-settle', 'stamp', 'settle', 'done'];
     const past = (target: Phase): boolean => order.indexOf(phase) >= order.indexOf(target);
+
+    // Show binary rain during waiting/pending phases (not after final stamp)
+    const showBinaryRain = past('waiting') && !past('stamp');
 
     // Phase 1: parchment card enters
     useEffect(() => {
@@ -62,7 +85,7 @@ export function SealAnimation({
 
     // Show "Continue" link after long delay
     useEffect(() => {
-        if (past('stamp')) return; // already confirmed
+        if (past('stamp')) return;
         if (phase !== 'waiting' && phase !== 'pending-stamp' && phase !== 'pending-settle') return;
         const t = setTimeout(() => setShowContinue(true), continueDelay);
         return () => clearTimeout(t);
@@ -71,7 +94,6 @@ export function SealAnimation({
     // Final stamp: when confirmed, slam the real stamp
     useEffect(() => {
         if (!confirmed) return;
-        // If still in waiting or pending phases, trigger the final stamp
         if (phase === 'waiting' || phase === 'pending-stamp' || phase === 'pending-settle') {
             const timers = [
                 setTimeout(() => setPhase('stamp'), 100),
@@ -100,10 +122,38 @@ export function SealAnimation({
                 <div className={`relative transition-all duration-600 ease-out ${
                     past('enter') ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-6 scale-95'
                 }`}>
-                    <div className="w-72 bg-[#FFFEF7] rounded-sm shadow-[0_20px_60px_rgba(0,0,0,0.3)] overflow-visible">
+                    <div className="w-72 bg-[#FFFEF7] rounded-sm shadow-[0_20px_60px_rgba(0,0,0,0.3)] overflow-hidden">
                         {/* Paper texture */}
                         <div className="absolute inset-0 opacity-[0.03] rounded-sm"
                             style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'200\' height=\'200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'n\'%3E%3CfeTurbulence baseFrequency=\'0.8\' numOctaves=\'4\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23n)\'/%3E%3C/svg%3E")' }} />
+
+                        {/* ── Binary rain overlay ───────────────── */}
+                        <div
+                            className={`absolute inset-0 pointer-events-none transition-opacity duration-500 overflow-hidden ${
+                                showBinaryRain ? 'opacity-100' : 'opacity-0'
+                            }`}
+                            aria-hidden="true"
+                        >
+                            <div className="absolute inset-0 flex justify-between px-3">
+                                {binaryCols.map((col, i) => (
+                                    <div
+                                        key={i}
+                                        className="text-[10px] font-mono leading-[1.3] whitespace-pre select-none animate-[binaryScroll_8s_linear_infinite]"
+                                        style={{
+                                            color: '#B8860B',
+                                            opacity: 0.12 + (i % 3) * 0.04,
+                                            animationDelay: `${-(i * 1.1)}s`,
+                                            animationDuration: `${6 + (i % 3) * 2}s`,
+                                        }}
+                                    >
+                                        {col}{'\n'}{col}
+                                    </div>
+                                ))}
+                            </div>
+                            {/* Top/bottom fade masks */}
+                            <div className="absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-[#FFFEF7] to-transparent" />
+                            <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-[#FFFEF7] to-transparent" />
+                        </div>
 
                         <div className="p-8 relative">
                             {/* Header */}
@@ -210,6 +260,10 @@ export function SealAnimation({
                     60% { transform: rotate(-12deg) scale(0.9); opacity: 1; }
                     80% { transform: rotate(-12deg) scale(1.05); opacity: 0.95; }
                     100% { transform: rotate(-12deg) scale(1); opacity: 0.95; }
+                }
+                @keyframes binaryScroll {
+                    0% { transform: translateY(0); }
+                    100% { transform: translateY(-50%); }
                 }
             `}</style>
         </div>
