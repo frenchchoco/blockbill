@@ -226,11 +226,12 @@ export function StreamDashboard(): React.JSX.Element {
     const exportCsv = useCallback(() => {
         if (filteredStreams.length === 0) return;
         const base = window.location.origin;
-        const rows: string[][] = [['ID', 'Counterparty', 'Token', 'Status', 'Rate/Block', 'Total Deposited', 'Total Withdrawn', 'Start Block', 'End Block', 'Link']];
+        const rows: string[][] = [['ID', 'Counterparty', 'Token', 'Status', 'Rate/Block', 'Total Deposited', 'Total Withdrawn', 'Start Block', 'End Block', 'Memo', 'Link']];
         for (const s of filteredStreams) {
             const tok = findToken(s.token, network);
             const dec = tokenDecimals[s.token] ?? tok?.decimals ?? 8;
             const counterparty = activeTab === 'sending' ? s.recipient : s.sender;
+            const memo = localStorage.getItem(`bb_stream_memo_${s.id}`) ?? '';
             rows.push([
                 s.id.toString(),
                 formatAddress(counterparty),
@@ -241,6 +242,7 @@ export function StreamDashboard(): React.JSX.Element {
                 formatTokenAmount(s.totalWithdrawn, dec),
                 s.startBlock.toString(),
                 s.endBlock.toString(),
+                memo,
                 `${base}/stream/${s.id.toString()}`,
             ]);
         }
