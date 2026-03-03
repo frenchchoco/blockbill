@@ -12,11 +12,13 @@ import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress, formatRecipient } from '../config/tokens';
 import { parseInvoiceProperties } from '../utils/invoice';
 import { netFromGross, calculateFee, FEE_PERCENT } from '../utils/fee';
+import { getMaxGasSats } from '../config/networks';
+import { friendlyError } from '../utils/errors';
 
 export function InvoiceView(): React.JSX.Element {
     const { id } = useParams<{ id: string }>();
     const { network } = useNetwork();
-    const { address } = useWalletConnect();
+    const { walletAddress, address } = useWalletConnect();
     const currentBlock = useBlockNumber();
     const [invoice, setInvoice] = useState<InvoiceData | null>(null);
     const [lineItems, setLineItems] = useState<readonly LineItem[]>([]);
@@ -25,6 +27,12 @@ export function InvoiceView(): React.JSX.Element {
     const [copied, setCopied] = useState(false);
     const [qrDataUrl, setQrDataUrl] = useState('');
     const [onChainDecimals, setOnChainDecimals] = useState<number | null>(null);
+    // BTC mark-as-paid state
+    const [showBtcForm, setShowBtcForm] = useState(false);
+    const [btcTxHash, setBtcTxHash] = useState('');
+    const [btcSubmitting, setBtcSubmitting] = useState(false);
+    const [btcError, setBtcError] = useState('');
+    const [btcSuccess, setBtcSuccess] = useState(false);
 
     const fetchInvoice = useCallback(async (showLoading = true): Promise<void> => {
         if (!id || !/^\d+$/.test(id)) { setError('Invalid invoice ID'); setLoading(false); return; }
@@ -100,6 +108,38 @@ export function InvoiceView(): React.JSX.Element {
             setTimeout(() => setCopied(false), 2000);
         });
     }, []);
+
+    const handleMarkAsPaidBTC = useCallback(async () => {
+        if (!id || !address || !walletAddress) return;
+        const trimmed = btcTxHash.trim();
+        // Validate: 64 hex characters (with or without 0x prefix)
+        const cleaned = trimmed.replace(/^0x/i, '');
+        if (!/^[0-9a-fA-F]{64}$/.test(cleaned)) {
+            setBtcError('Enter a valid 64-character hex BTC transaction hash');
+            return;
+        }
+        setBtcSubmitting(true);
+        setBtcError('');
+        try {
+            const contract = contractService.getBlockBillContract(network);
+            const result = await contract.markAsPaidBTC(BigInt(id), cleaned);
+            const interactionParams = {
+                signer: null,
+                from: walletAddress,
+                to: contract.address.toString(),
+                refundTo: walletAddress,
+                maxGas: BigInt(getMaxGasSats(network)),
+            };
+            await contract.sendTransaction(result, interactionParams);
+            setBtcSuccess(true);
+            // Refresh invoice data after a short delay
+            setTimeout(() => void fetchInvoice(false), 5000);
+        } catch (err: unknown) {
+            setBtcError(friendlyError(err instanceof Error ? err.message : String(err)));
+        } finally {
+            setBtcSubmitting(false);
+        }
+    }, [id, address, walletAddress, btcTxHash, network, fetchInvoice]);
 
     if (loading) {
         return (
@@ -224,10 +264,82 @@ export function InvoiceView(): React.JSX.Element {
                             <span className="font-mono text-[var(--ink-dark)] text-right break-all">{formatAddress(invoice.paidBy)}</span>
                             <span className="text-[var(--ink-light)]">Paid at</span>
                             <span className="font-mono text-[var(--ink-dark)] text-right">Block #{invoice.paidAtBlock.toString()}</span>
+                            {invoice.btcTxHash && (
+                                <>
+                                    <span className="text-[var(--ink-light)]">BTC Tx Hash</span>
+                                    <span className="font-mono text-[var(--ink-dark)] text-right break-all text-xs">{invoice.btcTxHash}</span>
+                                </>
+                            )}
                         </div>
                         <div className="mt-3 pt-2 border-t border-[var(--stamp-green)]/30">
-                            <p className="text-xs text-[var(--stamp-green)] italic text-center">Permanently recorded on Bitcoin L1</p>
+                            <p className="text-xs text-[var(--stamp-green)] italic text-center">
+                                {invoice.btcTxHash ? 'Marked as paid with BTC transaction proof' : 'Permanently recorded on Bitcoin L1'}
+                            </p>
                         </div>
+                    </div>
+                )}
+
+                {/* BTC Mark as Paid — only for creator on pending invoices */}
+                {isCreator && invoice.status === InvoiceStatus.Pending && !expired && (
+                    <div className="mb-8">
+                        {btcSuccess ? (
+                            <div className="p-4 bg-[var(--stamp-green)]/5 border border-[var(--stamp-green)] rounded-lg text-center">
+                                <p className="text-sm text-[var(--stamp-green)] font-medium">
+                                    ✓ Transaction broadcast — waiting for block confirmation
+                                </p>
+                                <p className="text-xs text-[var(--ink-light)] mt-1">The invoice will update to Paid once confirmed (~10 min)</p>
+                            </div>
+                        ) : !showBtcForm ? (
+                            <button type="button" onClick={() => setShowBtcForm(true)}
+                                className="w-full px-6 py-3 border-2 border-dashed border-[var(--accent-gold)]/50 text-[var(--accent-gold)] font-medium rounded-lg hover:border-[var(--accent-gold)] hover:bg-[var(--accent-gold)]/5 transition-colors text-sm">
+                                ₿ Mark as Paid with BTC Transaction
+                            </button>
+                        ) : (
+                            <div className="p-4 border border-[var(--accent-gold)]/30 rounded-lg bg-[var(--paper-bg)]">
+                                <h3 className="text-sm font-serif text-[var(--ink-dark)] mb-3">Mark as Paid — BTC Native</h3>
+                                <p className="text-xs text-[var(--ink-light)] mb-3">
+                                    If you received BTC payment outside of OPNet, paste the Bitcoin transaction hash below as proof.
+                                    This records the proof on-chain — no token transfer is made.
+                                </p>
+                                <div className="mb-3">
+                                    <label className="block text-xs font-medium text-[var(--ink-medium)] mb-1">
+                                        Bitcoin Transaction Hash
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={btcTxHash}
+                                        onChange={(e) => { setBtcTxHash(e.target.value); setBtcError(''); }}
+                                        placeholder="e.g. a1b2c3d4e5f6..."
+                                        className="w-full px-3 py-2 bg-white border border-[var(--border-paper)] rounded-lg text-sm font-mono text-[var(--ink-dark)] placeholder-[var(--ink-light)] focus:outline-none focus:border-[var(--accent-gold)] focus:ring-1 focus:ring-[var(--accent-gold)]"
+                                        maxLength={66}
+                                        disabled={btcSubmitting}
+                                    />
+                                    <p className="text-xs text-[var(--ink-light)] mt-1">64 hex characters (the txid from your BTC wallet or explorer)</p>
+                                </div>
+                                {btcError && (
+                                    <p className="text-sm text-[var(--stamp-red)] mb-3">{btcError}</p>
+                                )}
+                                <div className="flex gap-2">
+                                    <button type="button"
+                                        onClick={() => { setShowBtcForm(false); setBtcTxHash(''); setBtcError(''); }}
+                                        disabled={btcSubmitting}
+                                        className="flex-1 px-4 py-2 border border-[var(--border-paper)] text-[var(--ink-medium)] rounded-lg text-sm hover:border-[var(--ink-light)] transition-colors disabled:opacity-50">
+                                        Cancel
+                                    </button>
+                                    <button type="button"
+                                        onClick={() => void handleMarkAsPaidBTC()}
+                                        disabled={btcSubmitting || btcTxHash.trim().length === 0}
+                                        className="flex-1 px-4 py-2 bg-[var(--accent-gold)] text-white rounded-lg text-sm font-medium hover:bg-[var(--accent-gold-light)] transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                                        {btcSubmitting ? (
+                                            <>
+                                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                Submitting...
+                                            </>
+                                        ) : '₿ Confirm Payment'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 

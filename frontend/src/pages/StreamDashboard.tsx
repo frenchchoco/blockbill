@@ -192,6 +192,37 @@ export function StreamDashboard(): React.JSX.Element {
     const showDrafts = statusFilter === 'all' || statusFilter === 'draft';
     const displayedDraftCount = showDrafts ? drafts.length : 0;
 
+    const exportCsv = useCallback(() => {
+        if (filteredStreams.length === 0) return;
+        const base = window.location.origin;
+        const rows: string[][] = [['ID', 'Counterparty', 'Token', 'Status', 'Rate/Block', 'Total Deposited', 'Total Withdrawn', 'Start Block', 'End Block', 'Link']];
+        for (const s of filteredStreams) {
+            const tok = findToken(s.token, network);
+            const dec = tokenDecimals[s.token] ?? tok?.decimals ?? 8;
+            const counterparty = activeTab === 'sending' ? s.recipient : s.sender;
+            rows.push([
+                s.id.toString(),
+                formatAddress(counterparty),
+                tok?.symbol ?? formatAddress(s.token),
+                getStreamStatusLabel(s.status),
+                formatTokenAmount(s.ratePerBlock, dec),
+                formatTokenAmount(s.totalDeposited, dec),
+                formatTokenAmount(s.totalWithdrawn, dec),
+                s.startBlock.toString(),
+                s.endBlock.toString(),
+                `${base}/stream/${s.id.toString()}`,
+            ]);
+        }
+        const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `blockbill-${activeTab}-streams.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }, [filteredStreams, activeTab, network, tokenDecimals]);
+
     if (!walletAddress) {
         return (
             <div className="max-w-4xl mx-auto">
@@ -245,6 +276,15 @@ export function StreamDashboard(): React.JSX.Element {
                         <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
                 </button>
+                {filteredStreams.length > 0 && (
+                    <button type="button" onClick={exportCsv}
+                        className="ml-auto text-xs text-[var(--accent-gold)] hover:text-[var(--accent-gold-light)] transition-colors flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Export CSV
+                    </button>
+                )}
             </div>
 
             {/* Error */}
