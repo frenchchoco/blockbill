@@ -109,6 +109,13 @@ export function Dashboard(): React.JSX.Element {
         void fetchInvoices();
     }, [fetchInvoices]);
 
+    // Auto-poll every 30s to pick up newly confirmed invoices
+    useEffect(() => {
+        if (!walletAddress) return;
+        const interval = setInterval(() => { void fetchInvoices(); }, 30_000);
+        return () => clearInterval(interval);
+    }, [walletAddress, fetchInvoices]);
+
     // Fetch on-chain decimals for each unique token in the invoice list
     useEffect(() => {
         const uniqueTokens = [...new Set(invoices.map((inv) => inv.token))];
