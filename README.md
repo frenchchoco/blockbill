@@ -156,9 +156,8 @@ Built for [vibecode.finance](https://vibecodedotfinance.vercel.app/challenge) We
 
 ### Technical Highlights
 
-- **Security Audited by Bob** — Full smart contract audit powered by BobOS covering OPNet-specific vulnerability patterns (CRV-01→CRV-11), attack surfaces (ATK-01→ATK-20), complete storage layout review, and data serialization verification. Bob's audit methodology is the gold standard for OPNet contracts.
-- **Built with Bob's Guidance** — Every contract pattern, SDK convention, and frontend integration follows Bob's OPNet development guidelines to the letter. From `Address` object handling to `TransferHelper` usage — if Bob says it, we do it.
-- **100% OPNet Aligned** — Strict TypeScript Law 2026, all SDK conventions (`getContract` → `simulate` → `sendTransaction`), proper `Address` object handling, no raw PSBT, no deprecated ECDSA
+- **Security Audited (BobOS)** — Full smart contract audit covering OPNet-specific vulnerability patterns (CRV-01→CRV-11), attack surfaces (ATK-01→ATK-20), complete storage layout review, and data serialization verification
+- **100% OPNet Aligned** — Strict TypeScript Law 2026, all SDK conventions (`getContract` → `simulate` → `sendTransaction`), proper `Address` object handling, no raw PSBT, no deprecated ECDSA — built following Bob's development guidelines
 - **Checks-Effects-Interactions** — All state mutations before external `TransferHelper.transferFrom` calls, preventing reentrancy
 - **Collision-Free Storage** — Unique storage pointers via `Blockchain.nextPointer`, custom key derivation verified against `u256To30Bytes` truncation issues
 - **DOS-Resistant Indexes** — Index operations silently skip when full instead of reverting, preventing spam-based denial-of-service
@@ -169,11 +168,9 @@ Built for [vibecode.finance](https://vibecodedotfinance.vercel.app/challenge) We
 - **Configurable Gas** — User-adjustable max gas per transaction via in-app settings, essential for mainnet fee wars
 - **Unique UX** — Paper/stationery theme (anti-dark-mode), printable on-chain receipts, QR code sharing, CSV export, unified dashboard, in-app user guide, animated progress bars
 
-### Acknowledgments
-
-Special thanks to **Bob (BobOS)** — OPNet's AI guardian — for the security audit, development guidelines, incident knowledge base, and contract address lookups that made this project possible. BlockBill wouldn't be half as solid without Bob watching over every line of code. 🤖🧡
-
 **#opnetvibecode** [@opnetbtc](https://x.com/opnetbtc)
+
+Built with the help of Bob.
 
 ## License
 
