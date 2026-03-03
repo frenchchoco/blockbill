@@ -188,7 +188,7 @@ export function Landing(): React.JSX.Element {
                         { label: 'Bitcoin L1', sub: 'Secured by proof-of-work' },
                         { label: '100% On-Chain', sub: 'No off-chain dependencies' },
                         { label: 'Trustless', sub: 'No intermediary required' },
-                        { label: '0.5% Fee', sub: 'On every transaction' },
+                        { label: '0.5% Fee', sub: 'Deducted on-chain' },
                     ] as const).map((item) => (
                         <div key={item.label} className="text-center">
                             <p className="text-sm font-serif font-semibold text-[var(--ink-dark)]">{item.label}</p>
@@ -321,8 +321,8 @@ export function Landing(): React.JSX.Element {
                     <div className="relative space-y-2">
                         <h2 className="text-2xl font-serif text-[var(--ink-dark)]">Simple Pricing</h2>
                         <p className="text-5xl font-serif text-[var(--accent-gold)] font-bold">0.5%</p>
-                        <p className="text-lg text-[var(--ink-medium)]">per transaction. That&apos;s it.</p>
-                        <p className="text-sm text-[var(--ink-light)]">No subscriptions. No hidden fees. Charged once on creation.</p>
+                        <p className="text-lg text-[var(--ink-medium)]">fee, once, on invoice or stream creation.</p>
+                        <p className="text-sm text-[var(--ink-light)]">No subscriptions. No hidden fees.</p>
                     </div>
                 </PaperCard>
             </section>
