@@ -16,6 +16,7 @@ import type { TokenInfo } from '../config/tokens';
 import { friendlyError } from '../utils/errors';
 import { getTxGasParams } from '../config/networks';
 import { addFeeOnTop, FEE_PERCENT } from '../utils/fee';
+import { savePendingInvoice } from '../utils/invoicePending';
 
 interface FormLineItem {
     readonly description: string;
@@ -247,6 +248,20 @@ export function CreateInvoice(): React.JSX.Element {
             setSealConfirmed(false);
 
             const txId = receipt.transactionId;
+
+            // Persist pending invoice so it shows in the dashboard immediately
+            const tok = selectedToken;
+            savePendingInvoice({
+                creatorHex: address?.toHex() ?? '',
+                tokenAddress: form.tokenAddress,
+                tokenSymbol: customTokenSymbol ?? tok?.symbol ?? '',
+                tokenIcon: tok?.icon ?? '',
+                recipient: form.recipient,
+                totalAmount: form.totalAmount,
+                memo: form.memo,
+                txId,
+            });
+
             const provider = providerService.getProvider(network);
 
             // Poll in background — stamp when confirmed (max 12 attempts = ~60s)

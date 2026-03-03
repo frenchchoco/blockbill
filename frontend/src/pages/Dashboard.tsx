@@ -11,6 +11,8 @@ import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress } from '../config/tokens';
 import { parseInvoiceProperties } from '../utils/invoice';
 import { friendlyError } from '../utils/errors';
+import { getPendingInvoices, clearPendingInvoices, removePendingInvoice } from '../utils/invoicePending';
+import type { PendingInvoice } from '../utils/invoicePending';
 
 type Tab = 'created' | 'received';
 type StatusFilter = 'all' | 'pending' | 'paid' | 'cancelled';
@@ -34,6 +36,19 @@ export function Dashboard(): React.JSX.Element {
     const [totalCount, setTotalCount] = useState(0n);
     const [tokenDecimals, setTokenDecimals] = useState<Record<string, number>>({});
     const fetchedDecimalsRef = useRef<Set<string>>(new Set());
+    /** Track previous on-chain count to detect growth (= tx confirmed). */
+    const prevWalletCountRef = useRef<bigint | null>(null);
+    const [pendingInvoices, setPendingInvoices] = useState<PendingInvoice[]>([]);
+
+    // Load pending invoices from localStorage
+    const walletHexForPending = address?.toHex();
+    useEffect(() => {
+        if (walletHexForPending) {
+            setPendingInvoices(getPendingInvoices(walletHexForPending));
+        } else {
+            setPendingInvoices([]);
+        }
+    }, [walletHexForPending]);
 
     // Clear invoices immediately when wallet changes
     useEffect(() => {
@@ -42,6 +57,7 @@ export function Dashboard(): React.JSX.Element {
         setFetchError('');
         setTokenDecimals({});
         fetchedDecimalsRef.current.clear();
+        prevWalletCountRef.current = null;
         contractService.clearCache();
     }, [walletAddress]);
 
@@ -60,6 +76,18 @@ export function Dashboard(): React.JSX.Element {
 
             const walletCount = indexResult?.properties?.count ?? 0n;
             setTotalCount(walletCount);
+
+            // Clear pending invoices when on-chain count has grown (= tx confirmed)
+            if (activeTab === 'created') {
+                const walletHex = address.toHex();
+                if (prevWalletCountRef.current !== null && walletCount > prevWalletCountRef.current) {
+                    clearPendingInvoices(walletHex);
+                    setPendingInvoices([]);
+                } else {
+                    setPendingInvoices(getPendingInvoices(walletHex));
+                }
+                prevWalletCountRef.current = walletCount;
+            }
 
             if (walletCount === 0n) {
                 setInvoices([]);
@@ -152,6 +180,10 @@ export function Dashboard(): React.JSX.Element {
             return opt?.status !== null && opt?.status !== undefined && inv.status === opt.status;
         });
 
+    // Show pending cards on "all" and "pending" tabs, only for "created" tab
+    const showPending = activeTab === 'created' && (statusFilter === 'all' || statusFilter === 'pending');
+    const displayedPendingCount = showPending ? pendingInvoices.length : 0;
+
     const statusLabel = (inv: InvoiceData): string => {
         if (currentBlock > 0n && isInvoiceExpired(inv, currentBlock)) return 'Expired';
         return inv.status === InvoiceStatus.Paid ? 'Paid' : inv.status === InvoiceStatus.Cancelled ? 'Cancelled' : 'Pending';
@@ -185,6 +217,13 @@ export function Dashboard(): React.JSX.Element {
         URL.revokeObjectURL(url);
     }, [filteredInvoices, activeTab, network, tokenDecimals]);
 
+    const handleDeletePending = useCallback((pendingId: string) => {
+        removePendingInvoice(pendingId);
+        if (walletHexForPending) {
+            setPendingInvoices(getPendingInvoices(walletHexForPending));
+        }
+    }, [walletHexForPending]);
+
     if (!walletAddress) {
         return (
             <div className="max-w-4xl mx-auto">
@@ -198,6 +237,8 @@ export function Dashboard(): React.JSX.Element {
             </div>
         );
     }
+
+    const hasContent = filteredInvoices.length > 0 || displayedPendingCount > 0;
 
     return (
         <div className="max-w-4xl mx-auto">
@@ -229,7 +270,7 @@ export function Dashboard(): React.JSX.Element {
                     </button>
                 ))}
                 <span className="text-xs text-[var(--ink-light)] self-center ml-2">
-                    {totalCount.toString()} total
+                    {(Number(totalCount) + pendingInvoices.length).toString()} total{pendingInvoices.length > 0 && ` (${pendingInvoices.length} broadcasting)`}
                 </span>
                 <button type="button" onClick={() => void fetchInvoices()} disabled={loading}
                     title="Refresh"
@@ -261,15 +302,15 @@ export function Dashboard(): React.JSX.Element {
             )}
 
             {/* Loading */}
-            {loading ? (
+            {loading && !hasContent ? (
                 <div className="text-center py-12">
                     <div className="inline-block w-8 h-8 border-2 border-[var(--accent-gold)] border-t-transparent rounded-full animate-spin" />
                     <p className="text-[var(--ink-light)] mt-4 font-serif">Loading invoices...</p>
                 </div>
-            ) : filteredInvoices.length === 0 ? (
+            ) : !hasContent ? (
                 <PaperCard className="text-center py-12">
                     <p className="text-[var(--ink-medium)] mb-4">
-                        {invoices.length === 0 ? 'No invoices yet.' : 'No matching invoices.'}
+                        {invoices.length === 0 && pendingInvoices.length === 0 ? 'No invoices yet.' : 'No matching invoices.'}
                     </p>
                     <Link to="/create"
                         className="inline-flex items-center px-6 py-3 bg-[var(--accent-gold)] text-white font-medium rounded-lg hover:bg-[var(--accent-gold-light)] transition-colors shadow-md">
@@ -287,6 +328,55 @@ export function Dashboard(): React.JSX.Element {
                         <div className="col-span-2 text-right">Actions</div>
                     </div>
 
+                    {/* ── Pending (broadcasting) invoice cards ───────────── */}
+                    {showPending && pendingInvoices.map((pi) => {
+                        const tok = findToken(pi.tokenAddress, network);
+                        return (
+                            <PaperCard key={pi.pendingId} className="!p-4 relative border-dashed border-[var(--accent-gold)]/40">
+                                <div className="grid grid-cols-12 gap-4 items-center">
+                                    <div className="col-span-12 sm:col-span-1">
+                                        <span className="font-mono text-sm text-[var(--ink-light)]">—</span>
+                                    </div>
+                                    <div className="col-span-6 sm:col-span-3">
+                                        <span className="sm:hidden text-xs text-[var(--ink-light)] block">Amount</span>
+                                        <span className="font-mono text-sm text-[var(--ink-dark)] font-medium">
+                                            {pi.totalAmount}
+                                        </span>
+                                    </div>
+                                    <div className="col-span-6 sm:col-span-2">
+                                        <span className="sm:hidden text-xs text-[var(--ink-light)] block">Token</span>
+                                        <span className="text-xs text-[var(--ink-medium)]">
+                                            {pi.tokenIcon || tok?.icon || ''} {pi.tokenSymbol || tok?.symbol || formatAddress(pi.tokenAddress)}
+                                        </span>
+                                    </div>
+                                    <div className="col-span-4 sm:col-span-2">
+                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border border-dashed border-[var(--accent-gold)] text-[var(--accent-gold)] bg-[var(--accent-gold)]/5">
+                                            <span className="inline-block w-2 h-2 border border-[var(--accent-gold)] border-t-transparent rounded-full animate-spin" />
+                                            Broadcasting
+                                        </span>
+                                    </div>
+                                    <div className="col-span-4 sm:col-span-2">
+                                        <span className="sm:hidden text-xs text-[var(--ink-light)] block">Block</span>
+                                        <span className="font-mono text-xs text-[var(--ink-light)]">—</span>
+                                    </div>
+                                    <div className="col-span-4 sm:col-span-2 flex items-center justify-end gap-3">
+                                        <button type="button" onClick={() => handleDeletePending(pi.pendingId)}
+                                            className="text-xs text-[var(--ink-light)] hover:text-[var(--stamp-red)] transition-colors"
+                                            title="Dismiss">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                                {pi.memo && (
+                                    <p className="mt-2 text-xs text-[var(--ink-light)] italic truncate">{pi.memo}</p>
+                                )}
+                            </PaperCard>
+                        );
+                    })}
+
+                    {/* ── On-chain invoice cards ─────────────────────────── */}
                     {filteredInvoices.map((invoice) => {
                         const tok = findToken(invoice.token, network);
                         const dec = tokenDecimals[invoice.token] ?? tok?.decimals ?? 8;
