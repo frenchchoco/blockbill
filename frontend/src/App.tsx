@@ -9,6 +9,7 @@ import { Receipt } from './pages/Receipt';
 import { HowTo } from './pages/HowTo';
 import { CreateStream } from './pages/CreateStream';
 import { StreamView } from './pages/StreamView';
+import { Admin } from './pages/Admin';
 import { PaperCard } from './components/common/PaperCard';
 
 function NotFound(): React.JSX.Element {
@@ -40,6 +41,7 @@ function App(): React.JSX.Element {
                 <Route path="/streams/create" element={<Navigate to="/create/stream" replace />} />
                 <Route path="/stream/:id" element={<StreamView />} />
                 <Route path="/guide" element={<HowTo />} />
+                <Route path="/admin" element={<Admin />} />
                 <Route path="*" element={<NotFound />} />
             </Routes>
         </Layout>
