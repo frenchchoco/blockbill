@@ -177,6 +177,13 @@ export function StreamDashboard(): React.JSX.Element {
         void fetchStreams();
     }, [fetchStreams]);
 
+    // Auto-poll every 30s to pick up confirmed txs (withdrawals, pauses, etc.)
+    useEffect(() => {
+        if (!walletAddress) return;
+        const interval = setInterval(() => { void fetchStreams(); }, 30_000);
+        return () => clearInterval(interval);
+    }, [walletAddress, fetchStreams]);
+
     // Fetch on-chain decimals
     useEffect(() => {
         const uniqueTokens = [...new Set(streams.map((s) => s.token))];
