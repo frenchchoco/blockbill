@@ -243,7 +243,7 @@ export function StreamDashboard(): React.JSX.Element {
             <div className="flex gap-8 mb-6 border-b border-[var(--border-paper)]">
                 {(['sending', 'receiving'] as const).map((tab) => (
                     <button key={tab} type="button"
-                        onClick={() => { setActiveTab(tab); setStatusFilter('all'); prevWalletCountRef.current = null; }}
+                        onClick={() => { setActiveTab(tab); setStatusFilter('all'); setStreams([]); setWithdrawables({}); prevWalletCountRef.current = null; }}
                         className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px capitalize ${
                             activeTab === tab
                                 ? 'border-[var(--accent-gold)] text-[var(--ink-dark)]'
