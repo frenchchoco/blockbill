@@ -11,7 +11,7 @@ import { useAddressValidation } from '../hooks/useAddressValidation';
 import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress, parseTokenAmount } from '../config/tokens';
 import { friendlyError, isUserCancel } from '../utils/errors';
-import { getMemoFromHash, decryptMemo, encryptMemo, buildMemoUrl } from '../utils/streamMemo';
+import { getMemoFromHash, decryptMemo, encryptMemo, buildMemoUrl } from '../utils/memo';
 import { useSendTransaction } from '../hooks/useSendTransaction';
 import { getStreamDrafts } from '../utils/streamDrafts';
 import { setPendingAction } from '../utils/streamPendingActions';

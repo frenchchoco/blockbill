@@ -1,5 +1,6 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { useWalletConnect } from '@btc-vision/walletconnect';
 import QRCode from 'qrcode';
 import { PaperCard } from '../components/common/PaperCard';
 import { StampBadge } from '../components/common/StampBadge';
@@ -9,16 +10,23 @@ import { useNetwork } from '../hooks/useNetwork';
 import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress, formatRecipient } from '../config/tokens';
 import { parseInvoiceProperties } from '../utils/invoice';
+import { getMemoFromHash, decryptMemo, encryptMemo, buildMemoUrl } from '../utils/memo';
 
 export function Receipt(): React.JSX.Element {
     const { id } = useParams<{ id: string }>();
     const { network } = useNetwork();
+    const { address } = useWalletConnect();
     const [invoice, setInvoice] = useState<InvoiceData | null>(null);
     const [lineItems, setLineItems] = useState<readonly LineItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [qrDataUrl, setQrDataUrl] = useState('');
     const [onChainDecimals, setOnChainDecimals] = useState<number | null>(null);
+    const [copied, setCopied] = useState(false);
+    /** Decrypted private memo (from URL hash or localStorage). */
+    const [memo, setMemo] = useState<string | null>(null);
+    const hasHashMemo = useMemo(() => getMemoFromHash() !== null, []);
+    const [memoRevealed, setMemoRevealed] = useState(false);
 
     useEffect(() => {
         if (!id || !/^\d+$/.test(id)) { setError('Invalid invoice ID'); setLoading(false); return; }
@@ -82,9 +90,48 @@ export function Receipt(): React.JSX.Element {
             .then(setQrDataUrl).catch(() => {});
     }, [id]);
 
+    // Resolve encrypted memo: URL hash → localStorage
+    useEffect(() => {
+        if (!invoice) return;
+        let cancelled = false;
+        const memoKey = `bb_invoice_memo_${invoice.id.toString()}`;
+
+        const resolve = async (): Promise<void> => {
+            const hashMemo = getMemoFromHash();
+            if (hashMemo) {
+                const plain = await decryptMemo(hashMemo, invoice.creator, invoice.recipient);
+                if (!cancelled && plain) {
+                    setMemo(plain);
+                    localStorage.setItem(memoKey, plain);
+                    return;
+                }
+            }
+            const persisted = localStorage.getItem(memoKey);
+            if (!cancelled && persisted) { setMemo(persisted); return; }
+        };
+
+        void resolve();
+        return () => { cancelled = true; };
+    }, [invoice?.id, invoice?.creator, invoice?.recipient]);
+
     const handlePrint = useCallback(() => {
         window.print();
     }, []);
+
+    const handleShareLink = useCallback(async () => {
+        try {
+            let url = window.location.origin + `/invoice/${id ?? ''}`;
+            if (memo && invoice) {
+                try {
+                    const encrypted = await encryptMemo(memo, invoice.creator, invoice.recipient);
+                    url = buildMemoUrl(url, encrypted);
+                } catch { /* fallback to plain URL */ }
+            }
+            await navigator.clipboard.writeText(url);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch { /* clipboard error */ }
+    }, [memo, invoice, id]);
 
     if (loading) {
         return (
@@ -179,13 +226,49 @@ export function Receipt(): React.JSX.Element {
                         </div>
                     </div>
 
-                    {/* Memo */}
+                    {/* Legacy on-chain memo (old invoices) */}
                     {invoice.memo && (
                         <div className="mb-8">
                             <h2 className="text-lg font-serif text-[var(--ink-dark)] mb-2">Memo</h2>
                             <div className="p-4 bg-[var(--paper-bg)] border border-[var(--border-paper)] rounded-lg">
                                 <p className="text-sm text-[var(--ink-medium)] italic leading-relaxed">{invoice.memo}</p>
                             </div>
+                        </div>
+                    )}
+
+                    {/* Encrypted private memo */}
+                    {memo && (() => {
+                        const normalizeHex = (h: string): string => h.replace(/^(0x)+/i, '').toLowerCase();
+                        const walletHex = address ? normalizeHex(address.toHex()) : '';
+                        const isAuthorized = walletHex !== '' && (
+                            normalizeHex(invoice.creator) === walletHex ||
+                            normalizeHex(invoice.recipient) === walletHex ||
+                            normalizeHex(invoice.paidBy) === walletHex
+                        );
+                        if (!isAuthorized) return null;
+                        return (
+                            <button type="button" onClick={() => setMemoRevealed((r) => !r)}
+                                className="mb-8 w-full text-left px-4 py-3 bg-[var(--paper-bg)] rounded-lg border border-dashed border-[var(--border-paper)] cursor-pointer hover:border-[var(--accent-gold)]/40 transition-colors group print:cursor-default print:border-solid">
+                                <p className="text-xs text-[var(--ink-light)] font-serif mb-1 flex items-center gap-1">
+                                    <span className="print:hidden">{memoRevealed ? '\uD83D\uDD13' : '\uD83D\uDD12'}</span>
+                                    Private Memo
+                                    <span className="ml-auto text-[10px] text-[var(--ink-light)] opacity-0 group-hover:opacity-100 transition-opacity print:hidden">
+                                        {memoRevealed ? 'click to hide' : 'click to reveal'}
+                                    </span>
+                                </p>
+                                <p className={`text-sm text-[var(--ink-dark)] italic whitespace-pre-wrap transition-all duration-300 select-none print:select-auto print:filter-none ${
+                                    memoRevealed ? '' : 'blur-sm'
+                                }`}>
+                                    {memo}
+                                </p>
+                            </button>
+                        );
+                    })()}
+                    {hasHashMemo && !memo && (
+                        <div className="mb-8 px-4 py-3 bg-[var(--paper-bg)] rounded-lg border border-dashed border-[var(--border-paper)]">
+                            <p className="text-xs text-[var(--ink-light)] font-serif flex items-center gap-1">
+                                <span>{'\uD83D\uDD12'}</span> Encrypted memo — connect creator or recipient wallet to view.
+                            </p>
                         </div>
                     )}
 
@@ -233,6 +316,10 @@ export function Receipt(): React.JSX.Element {
                         <button type="button" onClick={handlePrint}
                             className="flex-1 inline-flex items-center justify-center px-6 py-3 bg-[var(--accent-gold)] text-white font-medium rounded-lg hover:bg-[var(--accent-gold-light)] transition-colors shadow-md">
                             Print Receipt
+                        </button>
+                        <button type="button" onClick={() => void handleShareLink()}
+                            className="flex-1 inline-flex items-center justify-center px-6 py-3 border-2 border-[var(--border-paper)] text-[var(--ink-medium)] font-medium rounded-lg hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] transition-colors">
+                            {copied ? 'Copied!' : 'Share Link'}
                         </button>
                         <Link to={`/invoice/${id ?? ''}`}
                             className="flex-1 inline-flex items-center justify-center px-6 py-3 border-2 border-[var(--border-paper)] text-[var(--ink-medium)] font-medium rounded-lg hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] transition-colors text-center">

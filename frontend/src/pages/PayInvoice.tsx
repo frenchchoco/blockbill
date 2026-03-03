@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useWalletConnect } from '@btc-vision/walletconnect';
 import toast from 'react-hot-toast';
@@ -16,6 +16,7 @@ import { friendlyError, isUserCancel } from '../utils/errors';
 import { parseInvoiceProperties } from '../utils/invoice';
 import { netFromGross, calculateFee, FEE_PERCENT } from '../utils/fee';
 import { useSendTransaction } from '../hooks/useSendTransaction';
+import { getMemoFromHash, decryptMemo } from '../utils/memo';
 const APPROVAL_KEY_PREFIX = 'bb_approve_';
 const PAY_BROADCAST_PREFIX = 'bb_pay_broadcast_';
 /** How long a pay-broadcast entry stays valid (15 min — just over a Bitcoin block). */
@@ -39,6 +40,11 @@ export function PayInvoice(): React.JSX.Element {
     const [payStatus, setPayStatus] = useState<StepStatus>('waiting');
     const [onChainDecimals, setOnChainDecimals] = useState<number | null>(null);
     const [unlimitedApproval, setUnlimitedApproval] = useState(false);
+    /** Decrypted private memo (from URL hash or localStorage). */
+    const [memo, setMemo] = useState<string | null>(null);
+    /** Whether the URL hash contains an encrypted memo (captured once at mount). */
+    const hasHashMemo = useMemo(() => getMemoFromHash() !== null, []);
+    const [memoRevealed, setMemoRevealed] = useState(false);
     const payingRef = useRef(false);
     const [sealConfirmed, setSealConfirmed] = useState(false);
     const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -135,6 +141,30 @@ export function PayInvoice(): React.JSX.Element {
         void fetchDec();
         return () => { cancelled = true; };
     }, [invoice?.token, network]);
+
+    // Resolve encrypted memo: URL hash → localStorage
+    useEffect(() => {
+        if (!invoice) return;
+        let cancelled = false;
+        const memoKey = `bb_invoice_memo_${invoice.id.toString()}`;
+
+        const resolve = async (): Promise<void> => {
+            const hashMemo = getMemoFromHash();
+            if (hashMemo) {
+                const plain = await decryptMemo(hashMemo, invoice.creator, invoice.recipient);
+                if (!cancelled && plain) {
+                    setMemo(plain);
+                    localStorage.setItem(memoKey, plain);
+                    return;
+                }
+            }
+            const persisted = localStorage.getItem(memoKey);
+            if (!cancelled && persisted) { setMemo(persisted); return; }
+        };
+
+        void resolve();
+        return () => { cancelled = true; };
+    }, [invoice?.id, invoice?.creator, invoice?.recipient]);
 
     // Check allowance on load and poll every 30s after broadcast
     useEffect(() => {
@@ -330,6 +360,32 @@ export function PayInvoice(): React.JSX.Element {
                         <span className="text-right font-mono">{formatTokenAmount(feeAmount, decimals)}</span>
                     </div>
                 </div>
+
+                {/* Encrypted private memo */}
+                {memo && (
+                    <button type="button" onClick={() => setMemoRevealed((r) => !r)}
+                        className="mb-8 w-full text-left px-4 py-3 bg-[var(--paper-bg)] rounded-lg border border-dashed border-[var(--border-paper)] cursor-pointer hover:border-[var(--accent-gold)]/40 transition-colors group">
+                        <p className="text-xs text-[var(--ink-light)] font-serif mb-1 flex items-center gap-1">
+                            <span>{memoRevealed ? '\uD83D\uDD13' : '\uD83D\uDD12'}</span>
+                            Private Memo
+                            <span className="ml-auto text-[10px] text-[var(--ink-light)] opacity-0 group-hover:opacity-100 transition-opacity">
+                                {memoRevealed ? 'click to hide' : 'click to reveal'}
+                            </span>
+                        </p>
+                        <p className={`text-sm text-[var(--ink-dark)] italic whitespace-pre-wrap transition-all duration-300 select-none ${
+                            memoRevealed ? '' : 'blur-sm'
+                        }`}>
+                            {memo}
+                        </p>
+                    </button>
+                )}
+                {hasHashMemo && !memo && (
+                    <div className="mb-8 px-4 py-3 bg-[var(--paper-bg)] rounded-lg border border-dashed border-[var(--border-paper)]">
+                        <p className="text-xs text-[var(--ink-light)] font-serif flex items-center gap-1">
+                            <span>{'\uD83D\uDD12'}</span> Encrypted memo — could not decrypt.
+                        </p>
+                    </div>
+                )}
 
                 {!walletAddress ? (
                     <div className="text-center py-8">

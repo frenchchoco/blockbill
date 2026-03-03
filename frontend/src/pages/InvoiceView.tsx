@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useWalletConnect } from '@btc-vision/walletconnect';
 import QRCode from 'qrcode';
@@ -12,6 +12,7 @@ import { contractService } from '../services/ContractService';
 import { findToken, formatTokenAmount, formatAddress, formatRecipient } from '../config/tokens';
 import { parseInvoiceProperties } from '../utils/invoice';
 import { netFromGross, calculateFee, FEE_PERCENT } from '../utils/fee';
+import { getMemoFromHash, decryptMemo, encryptMemo, buildMemoUrl } from '../utils/memo';
 
 export function InvoiceView(): React.JSX.Element {
     const { id } = useParams<{ id: string }>();
@@ -25,6 +26,11 @@ export function InvoiceView(): React.JSX.Element {
     const [copied, setCopied] = useState(false);
     const [qrDataUrl, setQrDataUrl] = useState('');
     const [onChainDecimals, setOnChainDecimals] = useState<number | null>(null);
+    /** Decrypted private memo (from URL hash or localStorage). */
+    const [memo, setMemo] = useState<string | null>(null);
+    /** Whether the URL hash contains an encrypted memo (captured once at mount). */
+    const hasHashMemo = useMemo(() => getMemoFromHash() !== null, []);
+    const [memoRevealed, setMemoRevealed] = useState(false);
 
     const fetchInvoice = useCallback(async (showLoading = true): Promise<void> => {
         if (!id || !/^\d+$/.test(id)) { setError('Invalid invoice ID'); setLoading(false); return; }
@@ -92,18 +98,56 @@ export function InvoiceView(): React.JSX.Element {
         return () => { cancelled = true; };
     }, [invoice?.token, network]);
 
+    // Reset memo reveal state when wallet changes
+    useEffect(() => { setMemoRevealed(false); }, [address]);
+
+    // Resolve encrypted memo: URL hash → localStorage
+    useEffect(() => {
+        if (!invoice) return;
+        let cancelled = false;
+        const memoKey = `bb_invoice_memo_${invoice.id.toString()}`;
+
+        const resolve = async (): Promise<void> => {
+            // 1. Try encrypted memo from URL hash
+            const hashMemo = getMemoFromHash();
+            if (hashMemo) {
+                const plain = await decryptMemo(hashMemo, invoice.creator, invoice.recipient);
+                if (!cancelled && plain) {
+                    setMemo(plain);
+                    localStorage.setItem(memoKey, plain);
+                    return;
+                }
+            }
+            // 2. Try persisted memo from localStorage
+            const persisted = localStorage.getItem(memoKey);
+            if (!cancelled && persisted) { setMemo(persisted); return; }
+        };
+
+        void resolve();
+        return () => { cancelled = true; };
+    }, [invoice?.id, invoice?.creator, invoice?.recipient]);
+
     useEffect(() => {
         const url = window.location.href;
         QRCode.toDataURL(url, { width: 160, margin: 2, color: { dark: '#3E2723', light: '#FFFEF7' } })
             .then(setQrDataUrl).catch(() => {});
     }, [id]);
 
-    const handleCopyLink = useCallback(() => {
-        void navigator.clipboard.writeText(window.location.href).then(() => {
+    const handleCopyLink = useCallback(async () => {
+        try {
+            let url = window.location.origin + window.location.pathname;
+            // Include encrypted memo in share link if available
+            if (memo && invoice) {
+                try {
+                    const encrypted = await encryptMemo(memo, invoice.creator, invoice.recipient);
+                    url = buildMemoUrl(url, encrypted);
+                } catch { /* fallback to plain URL */ }
+            }
+            await navigator.clipboard.writeText(url);
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
-        });
-    }, []);
+        } catch { /* clipboard error */ }
+    }, [memo, invoice]);
 
     if (loading) {
         return (
@@ -189,12 +233,39 @@ export function InvoiceView(): React.JSX.Element {
                     </div>
                 </div>
 
+                {/* Legacy on-chain memo (old invoices) */}
                 {invoice.memo && (
                     <div className="mb-8">
                         <h2 className="text-lg font-serif text-[var(--ink-dark)] mb-2">Memo</h2>
                         <div className="p-4 bg-[var(--paper-bg)] border border-[var(--border-paper)] rounded-lg">
                             <p className="text-sm text-[var(--ink-medium)] italic leading-relaxed">{invoice.memo}</p>
                         </div>
+                    </div>
+                )}
+
+                {/* Encrypted private memo */}
+                {memo && (isCreator || (walletHex !== '' && normalizeHex(invoice.recipient) === walletHex)) && (
+                    <button type="button" onClick={() => setMemoRevealed((r) => !r)}
+                        className="mb-8 w-full text-left px-4 py-3 bg-[var(--paper-bg)] rounded-lg border border-dashed border-[var(--border-paper)] cursor-pointer hover:border-[var(--accent-gold)]/40 transition-colors group print:cursor-default print:border-solid">
+                        <p className="text-xs text-[var(--ink-light)] font-serif mb-1 flex items-center gap-1">
+                            <span className="print:hidden">{memoRevealed ? '\uD83D\uDD13' : '\uD83D\uDD12'}</span>
+                            Private Memo
+                            <span className="ml-auto text-[10px] text-[var(--ink-light)] opacity-0 group-hover:opacity-100 transition-opacity print:hidden">
+                                {memoRevealed ? 'click to hide' : 'click to reveal'}
+                            </span>
+                        </p>
+                        <p className={`text-sm text-[var(--ink-dark)] italic whitespace-pre-wrap transition-all duration-300 select-none print:select-auto print:filter-none ${
+                            memoRevealed ? '' : 'blur-sm'
+                        }`}>
+                            {memo}
+                        </p>
+                    </button>
+                )}
+                {hasHashMemo && !memo && !(isCreator || (walletHex !== '' && normalizeHex(invoice.recipient) === walletHex)) && (
+                    <div className="mb-8 px-4 py-3 bg-[var(--paper-bg)] rounded-lg border border-dashed border-[var(--border-paper)]">
+                        <p className="text-xs text-[var(--ink-light)] font-serif flex items-center gap-1">
+                            <span>{'\uD83D\uDD12'}</span> Encrypted memo — connect creator or recipient wallet to view.
+                        </p>
                     </div>
                 )}
 

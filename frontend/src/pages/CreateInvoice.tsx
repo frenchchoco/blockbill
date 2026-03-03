@@ -232,7 +232,7 @@ export function CreateInvoice(): React.JSX.Element {
             // as Blockchain.block.number + deadlineBlocks at execution time.
             // grossAmount = parsedAmount + fee; payer pays gross, creator receives parsedAmount.
             const simulation = await contract.createInvoice(
-                tokenAddr, grossAmount, recipientAddr, form.memo || '',
+                tokenAddr, grossAmount, recipientAddr, '',
                 BigInt(deadlineBlocks), 0, 0,
             );
 
@@ -270,12 +270,39 @@ export function CreateInvoice(): React.JSX.Element {
             const provider = providerService.getProvider(network);
 
             // Poll in background — stamp when confirmed (max 12 attempts = ~60s)
+            const memoText = form.memo;
             const pollConfirmation = async (): Promise<void> => {
                 for (let attempt = 1; attempt <= 12; attempt++) {
                     await new Promise((r) => setTimeout(r, 5000));
                     try {
                         const tx = await provider.getTransaction(txId);
-                        if (tx) { setSealConfirmed(true); return; }
+                        if (tx) {
+                            setSealConfirmed(true);
+                            // Best-effort: persist encrypted memo for the newly confirmed invoice
+                            if (memoText && address) {
+                                try {
+                                    const contract2 = contractService.getBlockBillContract(network);
+                                    const countRes = await contract2.getInvoiceCount();
+                                    const total = Number(countRes?.properties?.count ?? 0n);
+                                    if (total > 0) {
+                                        const norm = address.toHex().replace(/^(0x)+/i, '').toLowerCase();
+                                        for (let i = total; i >= Math.max(1, total - 5); i--) {
+                                            const inv = await contract2.getInvoice(BigInt(i));
+                                            if (!inv?.properties) continue;
+                                            const cr = inv.properties.creator;
+                                            const hex = typeof cr === 'object' && cr !== null && 'toHex' in cr
+                                                ? (cr as { toHex(): string }).toHex()
+                                                : String(cr);
+                                            if (hex.replace(/^(0x)+/i, '').toLowerCase() === norm) {
+                                                localStorage.setItem(`bb_invoice_memo_${i}`, memoText);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                } catch { /* memo persistence is best-effort */ }
+                            }
+                            return;
+                        }
                     } catch {
                         // polling error, will retry
                     }
@@ -456,12 +483,17 @@ export function CreateInvoice(): React.JSX.Element {
                             {showDetails && (
                                 <div className="mt-4 space-y-5">
                                     <div>
-                                        <label htmlFor="memo" className={labelCls}>Memo</label>
+                                        <label htmlFor="memo" className={labelCls}>Memo <span className="text-[var(--ink-light)] font-normal">(optional)</span></label>
                                         <textarea id="memo" value={form.memo}
                                             onChange={(e) => updateField('memo', e.target.value)}
                                             placeholder="e.g. Web design project - March 2026"
                                             rows={2} maxLength={200} className={inputCls + ' resize-none'} />
-                                        <span className="text-xs text-[var(--ink-light)] mt-1 block text-right">{form.memo.length}/200</span>
+                                        <div className="flex items-center justify-between mt-1">
+                                            <span className="text-xs text-[var(--ink-light)]">
+                                                Encrypted — only you and the recipient can read this memo.
+                                            </span>
+                                            <span className="text-xs text-[var(--ink-light)] font-mono">{form.memo.length}/200</span>
+                                        </div>
                                     </div>
                                     <div>
                                         <label className={labelCls}>Expiration</label>
