@@ -252,7 +252,6 @@ export function Landing(): React.JSX.Element {
                                 <li className="flex items-center gap-2"><span className="text-[var(--accent-gold)]">&#10003;</span> Shareable public links &amp; QR codes</li>
                                 <li className="flex items-center gap-2"><span className="text-[var(--accent-gold)]">&#10003;</span> Auto-expire by block height</li>
                                 <li className="flex items-center gap-2"><span className="text-[var(--accent-gold)]">&#10003;</span> Printable on-chain receipts</li>
-                                <li className="flex items-center gap-2"><span className="text-[var(--accent-gold)]">&#10003;</span> BTC native support (manual mark)</li>
                             </ul>
                             <Link to="/create" className="inline-flex items-center gap-1.5 mt-5 text-[var(--accent-gold)] font-medium hover:text-[var(--accent-gold-light)] transition-colors">
                                 Create Invoice

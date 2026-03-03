@@ -21,7 +21,6 @@ Traditional invoicing requires trust: "Did they pay? When? How much?" And tradit
 ### Invoicing
 - **On-Chain Invoices** — All invoice data stored in a smart contract on Bitcoin L1
 - **OP-20 Payments** — Pay with any OP-20 token, trustless via `transferFrom`
-- **BTC Native Support** — For BTC payments, creator marks as paid with the BTC txHash as proof
 - **Relative Deadlines** — Set expiration as blocks from confirmation (~10 min/block), with presets (1d/1w/1m/1y)
 - **Auto-Expire** — Invoices auto-detect expired status every 15s — no page refresh needed
 - **Shareable Links** — Public invoice pages readable without a wallet, with QR codes
@@ -49,8 +48,7 @@ Traditional invoicing requires trust: "Did they pay? When? How much?" And tradit
 │   (Vite + TS)        │      │                            │
 └──────────────────────┘      │   BlockBillContract        │
                               │   ├─ createInvoice()       │
-                              │   ├─ payInvoice()          │
-                              │   └─ markAsPaidBTC()       │
+                              │   └─ payInvoice()          │
                               │                            │
                               │   BlockBillStreamContract  │
                               │   ├─ createStream()        │
@@ -72,7 +70,6 @@ Traditional invoicing requires trust: "Did they pay? When? How much?" And tradit
 |--------|-------------|
 | `createInvoice()` | Create an invoice with token, amount, optional memo/deadline/tax/line items |
 | `payInvoice()` | Pay via OP-20 transferFrom — 99.5% to creator, 0.5% fee |
-| `markAsPaidBTC()` | Creator marks BTC payment with txHash proof |
 | `getInvoice()` | Read all invoice details |
 | `getLineItems()` | Read line items for an invoice |
 | `getInvoicesByCreator()` | List invoices created by an address |
