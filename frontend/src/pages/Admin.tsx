@@ -8,9 +8,6 @@ import { providerService } from '../services/ProviderService';
 import { getTxGasParams } from '../config/networks';
 import { friendlyError } from '../utils/errors';
 
-/* ── Owner check ─────────────────────────────────────────────── */
-const DEPLOYER_HEX = '0x8edd64cd6aebe907c6618c97a1f5ca2531d80446b69cce8227e815c928974581';
-
 export function Admin(): React.JSX.Element {
     const { walletAddress, address } = useWalletConnect();
     const { network } = useNetwork();
@@ -21,9 +18,6 @@ export function Admin(): React.JSX.Element {
     const [streamStatus, setStreamStatus] = useState<'idle' | 'sending' | 'done' | 'error'>('idle');
     const [invoiceTxId, setInvoiceTxId] = useState<string | null>(null);
     const [streamTxId, setStreamTxId] = useState<string | null>(null);
-
-    /* ── Check if connected wallet is deployer ───────────────── */
-    const isOwner = address?.toString().toLowerCase() === DEPLOYER_HEX.toLowerCase();
 
     /* ── Validate target address is active on OPNet ──────────── */
     useEffect(() => {
@@ -46,7 +40,7 @@ export function Admin(): React.JSX.Element {
             }
         };
 
-        const timer = setTimeout(() => void check(), 500); // debounce
+        const timer = setTimeout(() => void check(), 500);
         return () => { cancelled = true; clearTimeout(timer); };
     }, [newRecipient, network]);
 
@@ -119,25 +113,17 @@ export function Admin(): React.JSX.Element {
         );
     }
 
-    if (!isOwner) {
-        return (
-            <div className="max-w-xl mx-auto py-20 text-center">
-                <PaperCard>
-                    <p className="text-[var(--stamp-red)] font-serif text-lg">⛔ Access denied</p>
-                    <p className="text-[var(--ink-light)] mt-2 text-sm">Only the contract deployer can access this page.</p>
-                </PaperCard>
-            </div>
-        );
-    }
-
     const canSend = addrActive === 'active' && invoiceStatus !== 'sending' && streamStatus !== 'sending';
 
     return (
         <div className="max-w-xl mx-auto py-10 space-y-6">
             <PaperCard>
                 <h1 className="text-2xl font-serif text-[var(--ink-dark)] mb-1">Admin — Fee Recipient</h1>
-                <p className="text-sm text-[var(--ink-light)] mb-6">
+                <p className="text-sm text-[var(--ink-light)] mb-2">
                     Redirect the 0.5% platform fee to a new address on both contracts.
+                </p>
+                <p className="text-xs text-[var(--ink-light)] mb-6 italic">
+                    Only the contract owner can execute this. If you're not the owner, the transaction will revert.
                 </p>
 
                 {/* ── Address input ──────────────────────────── */}
