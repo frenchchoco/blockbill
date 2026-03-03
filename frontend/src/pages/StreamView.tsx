@@ -20,6 +20,8 @@ import { parseStreamProperties, normalizeHex } from '../utils/streamParser';
 import type { RawStreamProperties } from '../utils/streamParser';
 
 const BLOCKS_PER_DAY = 144;
+const WITHDRAW_BROADCAST_PREFIX = 'bb_withdraw_broadcast_';
+const WITHDRAW_BROADCAST_TTL = 15 * 60 * 1000; // 15 min
 
 export function StreamView(): React.JSX.Element {
     const { id } = useParams<{ id: string }>();
@@ -65,6 +67,20 @@ export function StreamView(): React.JSX.Element {
     const hasHashMemo = useMemo(() => getMemoFromHash() !== null, []);
 
     const withdrawToValidation = useAddressValidation(withdrawToAddr, network);
+
+    // Restore withdraw broadcast state from localStorage (prevents double withdraw after navigation)
+    useEffect(() => {
+        if (!id) return;
+        try {
+            const stored = localStorage.getItem(`${WITHDRAW_BROADCAST_PREFIX}${id}`);
+            if (stored && Date.now() - parseInt(stored, 10) < WITHDRAW_BROADCAST_TTL) {
+                setWithdrawable(0n);
+                setPendingTx('Withdrawal pending confirmation…');
+            } else if (stored) {
+                localStorage.removeItem(`${WITHDRAW_BROADCAST_PREFIX}${id}`);
+            }
+        } catch { /* ignore */ }
+    }, [id]);
 
     // Check if the withdrawTo target address is active (registered) on OPNet
     useEffect(() => {
@@ -186,6 +202,7 @@ export function StreamView(): React.JSX.Element {
         if (prevStreamSnapshotRef.current !== undefined && prevStreamSnapshotRef.current !== snapshot) {
             setPendingTx(null);
             setLastTxId(null);
+            if (id) localStorage.removeItem(`${WITHDRAW_BROADCAST_PREFIX}${id}`);
             if (pendingTxTimerRef.current) { clearTimeout(pendingTxTimerRef.current); pendingTxTimerRef.current = null; }
             // Stop accelerated polling — the action has been confirmed on-chain
             if (accelPollRef.current) { clearInterval(accelPollRef.current); accelPollRef.current = null; }
@@ -287,6 +304,8 @@ export function StreamView(): React.JSX.Element {
             const receipt = await sendWithFeeSelector(simulation, { refundTo: walletAddress!, network });
             const txId = receipt.transactionId;
             setLastTxId(txId);
+            setWithdrawable(0n); // optimistic — prevents double withdraw
+            localStorage.setItem(`${WITHDRAW_BROADCAST_PREFIX}${id}`, Date.now().toString());
             toast.success('Withdrawal broadcast! Will confirm in ~10 min.');
             setPendingAction(Number(id), 'withdraw');
             startPendingTx('Withdrawal pending confirmation…');
@@ -309,6 +328,8 @@ export function StreamView(): React.JSX.Element {
             const receipt = await sendWithFeeSelector(simulation, { refundTo: walletAddress!, network });
             const txId = receipt.transactionId;
             setLastTxId(txId);
+            setWithdrawable(0n); // optimistic — prevents double withdraw
+            localStorage.setItem(`${WITHDRAW_BROADCAST_PREFIX}${id}`, Date.now().toString());
             toast.success('WithdrawTo broadcast! Will confirm in ~10 min.');
             setPendingAction(Number(id), 'withdraw');
             startPendingTx('WithdrawTo pending confirmation…');
@@ -462,6 +483,8 @@ export function StreamView(): React.JSX.Element {
             if (simulation.revert) throw new Error(friendlyError(simulation.revert));
             const receipt = await sendWithFeeSelector(simulation, { refundTo: walletAddress!, network });
             setLastTxId(receipt.transactionId);
+            setWithdrawable(0n); // optimistic — prevents double claim
+            localStorage.setItem(`${WITHDRAW_BROADCAST_PREFIX}${id}`, Date.now().toString());
             toast.success('Claim for recipient broadcast!');
             setPendingAction(Number(id), 'withdraw');
             startPendingTx('Claim pending confirmation…');
@@ -659,7 +682,7 @@ export function StreamView(): React.JSX.Element {
                                         className="text-[var(--accent-gold)] hover:underline">
                                         Mempool ↗
                                     </a>
-                                    <a href={`https://opscan.org/tx/${lastTxId}?network=op_testnet`}
+                                    <a href={`https://opscan.org/transactions/${lastTxId}?network=op_testnet`}
                                         target="_blank" rel="noopener noreferrer"
                                         className="text-[var(--accent-gold)] hover:underline">
                                         OPScan ↗
