@@ -249,6 +249,7 @@ export function StreamView(): React.JSX.Element {
         : 0;
 
     const ratePerDay = stream ? stream.ratePerBlock * BigInt(BLOCKS_PER_DAY) : 0n;
+    const exhausted = stream ? exhausted : false;
 
     // --- Action handlers ---
 
@@ -489,8 +490,8 @@ export function StreamView(): React.JSX.Element {
                         <h1 className="text-3xl font-serif text-[var(--ink-dark)]">STREAM #{id}</h1>
                         <p className="text-sm text-[var(--ink-light)] mt-1">Started at Block #{stream.startBlock.toString()}</p>
                     </div>
-                    <span className={getStreamStampClass(stream.status, isStreamExhausted(stream))}>
-                        {getStreamStatusLabel(stream.status, isStreamExhausted(stream))}
+                    <span className={getStreamStampClass(stream.status, exhausted)}>
+                        {getStreamStatusLabel(stream.status, exhausted)}
                     </span>
                 </div>
 
@@ -642,7 +643,7 @@ export function StreamView(): React.JSX.Element {
                     ) : (
                         <>
                             {/* Recipient actions */}
-                            {isRecipient && stream.status === StreamStatus.Active && (
+                            {isRecipient && stream.status === StreamStatus.Active && !exhausted && (
                                 <div className="space-y-3">
                                     <button type="button" onClick={() => void handleWithdraw()} disabled={withdrawing || !!pendingTx || withdrawable === 0n}
                                         className="w-full py-3.5 bg-[var(--accent-gold)] text-white font-medium rounded-lg text-lg hover:bg-[var(--accent-gold-light)] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md active:scale-[0.98]">
@@ -689,7 +690,7 @@ export function StreamView(): React.JSX.Element {
                             )}
 
                             {/* Sender actions */}
-                            {isSender && stream.status !== StreamStatus.Cancelled && (
+                            {isSender && stream.status !== StreamStatus.Cancelled && !exhausted && (
                                 <div className="space-y-3">
                                     {/* Top Up */}
                                     {!showTopUp ? (
@@ -797,7 +798,7 @@ export function StreamView(): React.JSX.Element {
                             )}
 
                             {/* Third party: claim for recipient (uses withdrawTo to route funds correctly) */}
-                            {!isSender && !isRecipient && stream.status === StreamStatus.Active && withdrawable > 0n && (
+                            {!isSender && !isRecipient && stream.status === StreamStatus.Active && !exhausted && withdrawable > 0n && (
                                 <button type="button" onClick={() => void handleClaimForRecipient()} disabled={withdrawing || !!pendingTx}
                                     className="w-full py-3 bg-[var(--accent-gold)] text-white font-medium rounded-lg text-sm hover:bg-[var(--accent-gold-light)] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md">
                                     {withdrawing ? 'Claiming...' : `Claim ${formatTokenAmount(withdrawable, decimals)} for Recipient`}
