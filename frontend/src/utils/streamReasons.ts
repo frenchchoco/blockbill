@@ -1,10 +1,9 @@
 /**
  * Store optional pause/cancel reasons for streams (local-only, not on-chain).
- * Keyed by streamId. Auto-expires after 90 days.
+ * Keyed by streamId. No expiry — reasons persist as long as localStorage exists.
  */
 
 const STORAGE_KEY = 'bb_stream_reasons';
-const MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 
 export type ReasonAction = 'pause' | 'cancel';
 
@@ -21,8 +20,7 @@ function readAll(): StreamReason[] {
         if (!raw) return [];
         const parsed = JSON.parse(raw) as unknown;
         if (!Array.isArray(parsed)) return [];
-        const now = Date.now();
-        return (parsed as StreamReason[]).filter((r) => now - r.timestamp < MAX_AGE_MS);
+        return parsed as StreamReason[];
     } catch {
         return [];
     }
@@ -48,9 +46,7 @@ export function getStreamReason(streamId: number, action?: ReasonAction): Stream
     return all.filter((r) => r.streamId === streamId).sort((a, b) => b.timestamp - a.timestamp)[0];
 }
 
-/** Get all reasons (auto-expired). */
+/** Get all reasons. */
 export function getAllStreamReasons(): StreamReason[] {
-    const reasons = readAll();
-    writeAll(reasons); // persist auto-expiry
-    return reasons;
+    return readAll();
 }
