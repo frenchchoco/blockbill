@@ -883,12 +883,21 @@ export function StreamView(): React.JSX.Element {
                                 </div>
                             )}
 
-                            {/* Third party: claim for recipient (uses withdrawTo to route funds correctly) */}
+                            {/* Third party: claim for recipient (uses withdraw — no caller restriction) */}
                             {!isSender && !isRecipient && stream.status === StreamStatus.Active && !exhausted && withdrawable > 0n && (
-                                <button type="button" onClick={() => void handleClaimForRecipient()} disabled={withdrawing || !!pendingTx}
-                                    className="w-full py-3 bg-[var(--accent-gold)] text-white font-medium rounded-lg text-sm hover:bg-[var(--accent-gold-light)] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md">
-                                    {withdrawing ? 'Claiming...' : `Claim ${formatTokenAmount(withdrawable, decimals)} for Recipient`}
-                                </button>
+                                <div className="space-y-2">
+                                    <div className="flex items-start gap-2 p-3 rounded-lg bg-[var(--paper-card)]/60 border border-[var(--border-paper)] text-xs text-[var(--ink-medium)] leading-relaxed">
+                                        <span className="shrink-0 text-base" aria-hidden="true">💡</span>
+                                        <span>
+                                            <strong className="text-[var(--ink-dark)]">Feeling generous?</strong>{' '}
+                                            You pay the transaction fee so the recipient doesn't have to — but the stream funds go directly to their wallet, not yours.
+                                        </span>
+                                    </div>
+                                    <button type="button" onClick={() => void handleClaimForRecipient()} disabled={withdrawing || !!pendingTx}
+                                        className="w-full py-3 bg-[var(--accent-gold)] text-white font-medium rounded-lg text-sm hover:bg-[var(--accent-gold-light)] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md">
+                                        {withdrawing ? 'Claiming...' : `Claim ${formatTokenAmount(withdrawable, decimals)} for Recipient`}
+                                    </button>
+                                </div>
                             )}
                         </>
                     )}
