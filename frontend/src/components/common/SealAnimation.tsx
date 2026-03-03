@@ -1,24 +1,28 @@
 import { useEffect, useState, useRef } from 'react';
 
 interface SealAnimationProps {
-    /** When true, the stamp slams down and the animation completes */
+    /** When true, the final stamp slams down and the animation completes */
     readonly confirmed: boolean;
     readonly onComplete: () => void;
-    /** Stamp text — defaults to "PAID" */
+    /** Final stamp text — defaults to "PAID" */
     readonly stampLabel?: string;
-    /** Stamp border/text color — defaults to red (#B71C1C) */
+    /** Final stamp border/text color — defaults to red (#B71C1C) */
     readonly stampColor?: string;
-    /** Title shown after confirmation — defaults to "Payment Confirmed" */
+    /** Title shown after final confirmation — defaults to "Payment Confirmed" */
     readonly confirmedTitle?: string;
-    /** Subtitle shown after confirmation */
+    /** Subtitle shown after final confirmation */
     readonly confirmedSubtitle?: string;
-    /** Auto-confirm after this many ms (default: 6000). Set to 0 to disable auto-confirm. */
-    readonly autoConfirmDelay?: number;
-    /** Delay before showing the "Continue" link (default: 5000) */
+    /** Pending stamp text shown while broadcasting (default: "BROADCASTING") */
+    readonly pendingStampLabel?: string;
+    /** Pending stamp color (default: #B8860B — gold) */
+    readonly pendingStampColor?: string;
+    /** Delay before showing the pending stamp in ms (default: 6000). Set to 0 to skip. */
+    readonly pendingStampDelay?: number;
+    /** Delay before showing the "Continue" link (default: 15000) */
     readonly continueDelay?: number;
 }
 
-type Phase = 'enter' | 'waiting' | 'stamp' | 'settle' | 'done';
+type Phase = 'enter' | 'waiting' | 'pending-stamp' | 'pending-settle' | 'stamp' | 'settle' | 'done';
 
 export function SealAnimation({
     confirmed,
@@ -27,16 +31,18 @@ export function SealAnimation({
     stampColor = '#B71C1C',
     confirmedTitle = 'Payment Confirmed',
     confirmedSubtitle = 'Recorded on Bitcoin L1',
-    autoConfirmDelay = 6000,
-    continueDelay = 5000,
+    pendingStampLabel = 'BROADCASTING',
+    pendingStampColor = '#B8860B',
+    pendingStampDelay = 6000,
+    continueDelay = 15000,
 }: SealAnimationProps): React.JSX.Element {
     const [phase, setPhase] = useState<Phase>('enter');
-    const [autoConfirmed, setAutoConfirmed] = useState(false);
     const [showContinue, setShowContinue] = useState(false);
     const onCompleteRef = useRef(onComplete);
     onCompleteRef.current = onComplete;
 
-    const isConfirmed = confirmed || autoConfirmed;
+    const order: Phase[] = ['enter', 'waiting', 'pending-stamp', 'pending-settle', 'stamp', 'settle', 'done'];
+    const past = (target: Phase): boolean => order.indexOf(phase) >= order.indexOf(target);
 
     // Phase 1: parchment card enters
     useEffect(() => {
@@ -44,37 +50,45 @@ export function SealAnimation({
         return () => clearTimeout(t);
     }, []);
 
-    // Auto-confirm after delay (disabled when autoConfirmDelay = 0)
+    // Pending stamp after delay (broadcasting feedback)
     useEffect(() => {
-        if (confirmed || autoConfirmDelay <= 0 || phase !== 'waiting') return;
-        const t = setTimeout(() => setAutoConfirmed(true), autoConfirmDelay);
-        return () => clearTimeout(t);
-    }, [confirmed, phase, autoConfirmDelay]);
-
-    // Show "Continue" link after delay when auto-confirm is disabled
-    useEffect(() => {
-        if (phase !== 'waiting' || autoConfirmDelay > 0) return;
-        const t = setTimeout(() => setShowContinue(true), continueDelay);
-        return () => clearTimeout(t);
-    }, [phase, autoConfirmDelay, continueDelay]);
-
-    // Phase 2: when confirmed (or auto-confirmed), stamp
-    useEffect(() => {
-        if (!isConfirmed || phase !== 'waiting') return;
-
+        if (confirmed || pendingStampDelay <= 0 || phase !== 'waiting') return;
         const timers = [
-            setTimeout(() => setPhase('stamp'), 100),
-            setTimeout(() => setPhase('settle'), 800),
-            setTimeout(() => setPhase('done'), 2500),
-            setTimeout(() => onCompleteRef.current(), 3200),
+            setTimeout(() => setPhase('pending-stamp'), pendingStampDelay),
+            setTimeout(() => setPhase('pending-settle'), pendingStampDelay + 700),
         ];
         return () => timers.forEach(clearTimeout);
-    }, [isConfirmed, phase]);
+    }, [confirmed, phase, pendingStampDelay]);
 
-    const past = (target: Phase): boolean => {
-        const order: Phase[] = ['enter', 'waiting', 'stamp', 'settle', 'done'];
-        return order.indexOf(phase) >= order.indexOf(target);
-    };
+    // Show "Continue" link after long delay
+    useEffect(() => {
+        if (past('stamp')) return; // already confirmed
+        if (phase !== 'waiting' && phase !== 'pending-stamp' && phase !== 'pending-settle') return;
+        const t = setTimeout(() => setShowContinue(true), continueDelay);
+        return () => clearTimeout(t);
+    }, [phase, continueDelay]);
+
+    // Final stamp: when confirmed, slam the real stamp
+    useEffect(() => {
+        if (!confirmed) return;
+        // If still in waiting or pending phases, trigger the final stamp
+        if (phase === 'waiting' || phase === 'pending-stamp' || phase === 'pending-settle') {
+            const timers = [
+                setTimeout(() => setPhase('stamp'), 100),
+                setTimeout(() => setPhase('settle'), 800),
+                setTimeout(() => setPhase('done'), 2500),
+                setTimeout(() => onCompleteRef.current(), 3200),
+            ];
+            return () => timers.forEach(clearTimeout);
+        }
+    }, [confirmed, phase]);
+
+    // Determine which stamp to show
+    const showPending = past('pending-stamp') && !past('stamp');
+    const showFinal = past('stamp');
+    const currentStampLabel = showFinal ? stampLabel : pendingStampLabel;
+    const currentStampColor = showFinal ? stampColor : pendingStampColor;
+    const isStamping = phase === 'pending-stamp' || phase === 'stamp';
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -118,31 +132,34 @@ export function SealAnimation({
                                 <div className="h-3 w-20 bg-[#B8860B]/15 rounded-full" />
                             </div>
 
-                            {/* Stamp — only rendered after stamp phase */}
-                            {past('stamp') && (
+                            {/* Stamp — pending or final */}
+                            {(showPending || showFinal) && (
                                 <div
+                                    key={showFinal ? 'final' : 'pending'}
                                     className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-all ${
-                                        phase === 'stamp'
+                                        isStamping
                                             ? 'scale-[2] opacity-0 animate-[stampSlam_0.3s_cubic-bezier(0.22,1.8,0.36,1)_forwards]'
                                             : 'scale-100 opacity-100'
                                     }`}
                                     style={{ transform: 'rotate(-12deg)' }}
                                 >
-                                    <div className="border-[4px] rounded-md px-8 py-3 select-none"
+                                    <div className="rounded-md px-6 py-3 select-none"
                                         style={{
-                                            borderColor: stampColor,
-                                            color: stampColor,
+                                            borderWidth: showFinal ? '4px' : '3px',
+                                            borderStyle: showPending ? 'dashed' : 'solid',
+                                            borderColor: currentStampColor,
+                                            color: currentStampColor,
                                             fontFamily: 'serif',
                                             fontWeight: 900,
-                                            fontSize: '2.5rem',
+                                            fontSize: showPending ? '1.4rem' : '2.5rem',
                                             letterSpacing: '0.15em',
                                             textTransform: 'uppercase',
                                             lineHeight: 1,
-                                            opacity: past('settle') ? 0.85 : 0.95,
-                                            textShadow: `0 0 1px ${stampColor}40`,
+                                            opacity: (past('pending-settle') && !showFinal) ? 0.5 : past('settle') ? 0.85 : 0.95,
+                                            textShadow: `0 0 1px ${currentStampColor}40`,
                                         }}
                                     >
-                                        {stampLabel}
+                                        {currentStampLabel}
                                     </div>
                                 </div>
                             )}
@@ -166,7 +183,7 @@ export function SealAnimation({
                     ) : (
                         <>
                             <p className="text-[#FFFEF7] text-lg font-serif tracking-wide">
-                                Transaction broadcast
+                                {showPending ? 'Broadcasting to network' : 'Transaction broadcast'}
                             </p>
                             <p className="text-[#FFFEF7]/40 text-xs mt-1.5 tracking-wider uppercase flex items-center justify-center gap-2">
                                 <span className="inline-block w-3 h-3 border border-[#FFFEF7]/40 border-t-transparent rounded-full animate-spin" />
