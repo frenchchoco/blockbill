@@ -352,7 +352,7 @@ export function Dashboard(): React.JSX.Element {
                                     <div className="col-span-4 sm:col-span-2">
                                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border border-dashed border-[var(--accent-gold)] text-[var(--accent-gold)] bg-[var(--accent-gold)]/5">
                                             <span className="inline-block w-2 h-2 border border-[var(--accent-gold)] border-t-transparent rounded-full animate-spin" />
-                                            Broadcasting
+                                            Sent
                                         </span>
                                     </div>
                                     <div className="col-span-4 sm:col-span-2">

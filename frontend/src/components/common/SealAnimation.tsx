@@ -49,7 +49,7 @@ export function SealAnimation({
     stampColor = '#B71C1C',
     confirmedTitle = 'Payment Confirmed',
     confirmedSubtitle = 'Recorded on Bitcoin L1',
-    pendingStampLabel = 'BROADCASTING',
+    pendingStampLabel = 'SENT',
     pendingStampColor = '#B8860B',
     pendingStampDelay = 6000,
     continueDelay = 15000,
@@ -233,7 +233,7 @@ export function SealAnimation({
                     ) : (
                         <>
                             <p className="text-[#FFFEF7] text-lg font-serif tracking-wide">
-                                {showPending ? 'Broadcasting to network' : 'Transaction broadcast'}
+                                {showPending ? 'Sent to network' : 'Transaction broadcast'}
                             </p>
                             <p className="text-[#FFFEF7]/40 text-xs mt-1.5 tracking-wider uppercase flex items-center justify-center gap-2">
                                 <span className="inline-block w-3 h-3 border border-[#FFFEF7]/40 border-t-transparent rounded-full animate-spin" />
