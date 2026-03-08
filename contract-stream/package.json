@@ -8,12 +8,12 @@
     },
     "dependencies": {
         "@btc-vision/as-bignum": "0.1.2",
+        "@btc-vision/as-loader": "^0.0.0",
         "@btc-vision/btc-runtime": "rc"
     },
     "devDependencies": {
-        "@btc-vision/assemblyscript": "^0.29.2",
-        "@btc-vision/opnet-transform": "1.1.0",
-        "@assemblyscript/loader": "latest"
+        "@btc-vision/assemblyscript": "^0.29.3",
+        "@btc-vision/opnet-transform": "1.1.0"
     },
     "overrides": {
         "bip39": {
